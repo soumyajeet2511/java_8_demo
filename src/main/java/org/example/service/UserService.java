@@ -17,6 +17,15 @@ public class UserService {
     private UserRepository repository;
 
     public List<UserDTO> getAllUsers() {
+        //cause of nullPointerException
+        String s = null;
+        System.out.println(s.length());
+
+        String str = "   ";
+        if (str.trim().isEmpty()) { //JAVA 8
+            System.out.println("String is empty");
+        }
+
         return repository.findAll()
                 .stream()
                 .map(user -> new UserDTO(user.getId(), user.getName()))

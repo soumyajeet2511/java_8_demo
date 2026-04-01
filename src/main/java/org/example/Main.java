@@ -19,15 +19,6 @@ public class Main {
             System.out.println(user);
         }
 
-        //cause of nullPointerException
-        String s = null;
-        System.out.println(s.length());
-
-        String str = "   ";
-        if (str.trim().isEmpty()) { //JAVA 8
-            System.out.println("String is empty");
-        }
-
         // Date handling (old API)
         Date date = new Date();
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
