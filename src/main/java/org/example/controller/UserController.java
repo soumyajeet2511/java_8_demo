@@ -5,7 +5,7 @@ import org.example.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
-        import java.util.List;
+import java.util.List;
 
 @RestController
 @RequestMapping("/users")
@@ -15,18 +15,18 @@ public class UserController {
     private UserService service;
 
     @GetMapping
-    public List<UserDTO> getAllUsers() {
+    public List<UserDTO> getAll() {
         return service.getAllUsers();
     }
 
     @GetMapping("/{id}")
-    public UserDTO getUser(@PathVariable int id) {
+    public UserDTO getById(@PathVariable int id) {
         return service.getUserById(id);
     }
 
     @PostMapping
-    public String addUser(@RequestParam String name) {
-        service.addUser(name);
-        return "User added successfully";
+    public String add(@RequestParam String name, @RequestParam String email) {
+        service.addUser(name, email);
+        return "User added";
     }
 }

@@ -4,9 +4,7 @@ import org.example.model.User;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 
 @Repository
 public class UserRepository {
@@ -14,8 +12,9 @@ public class UserRepository {
     private List<User> users = new ArrayList<>();
 
     public UserRepository() {
-        users.add(new User(1, "Java", LocalDate.now()));
-        users.add(new User(2, "Spring", LocalDate.now().minusDays(1)));
+        users.add(new User(1, "Mike", "test1@gmail.com", LocalDate.now()));
+        users.add(new User(2, "John", "john@gmail.com", LocalDate.now()));
+        users.add(new User(3, "Alice", "alice@gmail.com", LocalDate.now()));
     }
 
     public List<User> findAll() {
@@ -23,9 +22,9 @@ public class UserRepository {
     }
 
     public Optional<User> findById(int id) {
-        for (User user : users) {   // Java 8 style loop (migration candidate)
-            if (user.getId() == id) {
-                return Optional.of(user);
+        for (User u : users) {
+            if (u.getId() == id) {
+                return Optional.of(u);
             }
         }
         return Optional.empty();
