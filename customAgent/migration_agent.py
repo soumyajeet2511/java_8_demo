@@ -7,7 +7,7 @@ from openai_client import call_ai_cafe
 from maven_parser import parse_maven_errors
 
 # --- CONFIGURATION ---
-PROJECT_ROOT = "/Users/kushagra/IdeaProjects/java_8_demo"
+PROJECT_ROOT = "/Users/kushagra/IdeaProjects/java_8_demo_dev_new"
 MD_PATH = os.path.join(PROJECT_ROOT, ".gemini/v8tov11Migration.md")
 MAX_ITERATIONS = 20
 
