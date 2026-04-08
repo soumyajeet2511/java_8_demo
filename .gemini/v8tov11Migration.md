@@ -16,7 +16,7 @@ Migrate Java 8 code to Java 11 while preserving existing functionality, ensuring
 * Ensure code compiles successfully after changes
 * Preserve existing behavior exactly as-is
 * Keep code clean, readable, and production-ready
-
+* Prefer safe code, try to modify the code that can cause error or exception.
 
 ---
 
@@ -27,6 +27,9 @@ Migrate Java 8 code to Java 11 while preserving existing functionality, ensuring
 * Replace deprecated or removed APIs
 * Ensure all code compiles without errors
 * Do not remove dependencies unless necessary
+* Ensure ALL required imports are present.
+* If any class (e.g., Collectors, List, Optional) is used, its import MUST be added.
+* The code MUST compile without missing import errors.
 
 ---
 
@@ -40,10 +43,27 @@ Migrate Java 8 code to Java 11 while preserving existing functionality, ensuring
 
 ---
 
-### Strings
+### Strings and IO
 
 * Replace `str.trim().isEmpty()` with `str.isBlank()`
 * Use `strip()`, `isBlank()`, and `lines()` where applicable
+* Identify where Java 11 features can replace older patterns (e.g., `String.isBlank`, `strip`, `Files.readString`).
+
+---
+
+### Date and Time
+
+* Use modern classes like `LocalDate` etc. instead of legacy `Date` or `Calendar` where applicable and safe.
+
+---
+
+### DatatypeConverter (JAXB removal)
+
+* **Rule**: Replace `javax.xml.bind.DatatypeConverter` as it was removed from the JDK 11.
+* **Replacement**:
+    * For Hex binary: Use `new java.math.BigInteger(hex, 16).toByteArray()` or a custom hex utility.
+    * For Base64: Use `java.util.Base64`.
+* **Note**: Avoid adding `jaxb-api` just for hex/base64 utilities if native alternatives exist.
 
 ---
 
@@ -68,6 +88,34 @@ var list = new ArrayList<String>();
 ### Underscore Restriction
 
 * Do not use `_` as a variable name (invalid in Java 11)
+
+---
+
+## Security Modernization Rules (Critical)
+
+### SQL Injection
+* **Rule**: Replace string concatenation in SQL queries with Parameterized Queries or Prepared Statements.
+* **Identify**: Look for SQL strings built using `+` with method parameters.
+* **Example Fix**: Replace `"WHERE name = '" + name + "'"` with `"WHERE name = ?"` and use `preparedStatement.setString(1, name)`.
+
+### Hardcoded Credentials
+* **Rule**: Never hardcode passwords or secrets. Replace them with environment variable lookups (`System.getenv`) or configuration property injections (`@Value`).
+* **Identify**: Look for string comparisons like `"admin".equals(password)` or hardcoded API keys.
+
+### Cross-Site Scripting (XSS)
+* **Rule**: Sanitize user-controlled input before returning it in HTML responses. Avoid concatenating raw user input with HTML tags.
+* **Identify**: Look for `@RestController` methods returning strings concatenated with user parameters and HTML tags.
+* **Example Fix**: Use `HtmlUtils.htmlEscape(input)` or a similar sanitizer.
+
+### Path Traversal
+* **Rule**: Validate and normalize file paths using `normalize()` and check against a base directory. Do not allow direct concatenation of user input into file paths.
+* **Identify**: Look for `new File(...)` or `Paths.get(...)` using unvalidated user input.
+* **Example Fix**: Ensure the resolved path starts with the expected base directory.
+
+### Sensitive Information Leakage
+* **Rule**: Ensure `toString()`, logging, or API responses do not expose sensitive fields like `password`, `ssn`, or `apiKey`.
+* **Identify**: Look for `toString()` methods or DTO mapping that includes sensitive fields.
+* **Example Fix**: Explicitly exclude sensitive fields from `toString()` or JSON serialization.
 
 ---
 
@@ -128,10 +176,13 @@ For Java files:
 * Do not rewrite the entire file
 * Do not delete existing logic unless required to fix a compilation issue
 * Preserve structure and flow of the original code
+* Return ONLY updated Java code (no explanation)
 
 For `pom.xml`:
 
 * Full update is allowed if necessary
+* Update Java version to 11
+* Update maven-compiler-plugin
 
 ---
 
@@ -161,6 +212,8 @@ Return only JSON in the following format:
 * Keep edits small to avoid token limitations
 * Do not include explanations
 * Do not return partial JSON
+* Do NOT use APIs introduced after Java 11 (e.g., HexFormat, Stream.toList)
+* Ensure all replacements are strictly compatible with Java 11
 
 ---
 

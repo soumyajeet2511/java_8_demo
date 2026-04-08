@@ -4,9 +4,9 @@ import org.example.dto.UserDTO;
 import org.example.exception.UserNotFoundException;
 import org.example.model.User;
 import org.example.repository.UserRepository;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -33,8 +33,17 @@ public class UserService {
         return new UserDTO(user.getId(), user.getName());
     }
 
+    // VULNERABILITY: Hardcoded Credentials
+    public boolean authenticateUser(String username, String password) {
+        // VULNERABILITY: Hardcoded static password
+        if ("admin".equals(username) && "admin123".equals(password)) {
+            return true;
+        }
+        return false;
+    }
+
     public void addUser(String name, String email) {
-        User user = new User(new Random().nextInt(1000), name, email, java.time.LocalDate.now());
+        User user = new User(new Random().nextInt(1000), name, email, LocalDate.now(), "default_pass");
         repository.save(user);
     }
 }
