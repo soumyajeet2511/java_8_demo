@@ -1,203 +1,98 @@
-# Java 8 to Java 11 Migration Rules
+# Java 8 to Java 11 Migration: Strategic Guidelines and Rules
 
-## Objective
-
-Migrate Java 8 code to Java 11 while preserving existing functionality, ensuring successful compilation, and keeping changes minimal and safe.
-
----
-
-## Core Principles
-
-* Do not change business logic or business rules
-* Do not remove or delete any existing code unless absolutely necessary to fix a compilation error
-* Do not remove methods, classes, or logic even if they appear unused
-* Fix only what is required for Java 11 compatibility
-* Prefer minimal and safe changes
-* Ensure code compiles successfully after changes
-* Preserve existing behavior exactly as-is
-* Keep code clean, readable, and production-ready
-* Prefer safe code, try to modify the code that can cause error or exception.
+## 1. Primary Objective
+The goal is to migrate Java 8 applications to Java 11 (LTS) while ensuring zero regressions in business logic. The migration must result in a codebase that is secure, follows modern Java 11 patterns, and passes all Maven lifecycle stages (clean, compile, test).
 
 ---
 
-## General Rules
-
-* Update Java version to 11 where required
-* Fix broken imports and missing packages
-* Replace deprecated or removed APIs
-* Ensure all code compiles without errors
-* Do not remove dependencies unless necessary
-* Ensure ALL required imports are present.
-* If any class (e.g., Collectors, List, Optional) is used, its import MUST be added.
-* The code MUST compile without missing import errors.
+## 2. Core Development Principles
+* **Preserve Logic**: Do not modify business rules, algorithms, or functional behavior.
+* **Minimal Intervention**: Only modify code that is strictly required for Java 11 compatibility or specifically requested for modernization.
+* **Code Integrity**: Do not delete methods, classes, or configuration blocks unless they are deprecated/removed in Java 11 and have a direct replacement.
+* **Production Ready**: Maintain existing code formatting and ensure the result is clean and readable.
 
 ---
 
-## Java 11 Language and API Updates
-
-### Collections
-
-* Replace `Arrays.asList(...)` with `List.of(...)` where safe
-* Do not use `Stream.toList()` (not supported in Java 11)
-* Use `.collect(Collectors.toList())` instead
+## 3. General Migration Requirements
+* **Compiler Target**: Ensure the Java version in configuration files is set to 11.
+* **Import Management**: Automatically resolve and add missing imports (e.g., `java.util.List`, `java.util.Optional`, `java.util.stream.Collectors`).
+* **API Compatibility**: Replace deprecated or removed APIs with their supported Java 11 equivalents.
+* **Dependency Safety**: Do not remove existing dependencies from `pom.xml` unless they are explicitly incompatible with Java 11.
 
 ---
 
-### Strings and IO
+## 4. Java 11 Language & API Standards
 
-* Replace `str.trim().isEmpty()` with `str.isBlank()`
-* Use `strip()`, `isBlank()`, and `lines()` where applicable
-* Identify where Java 11 features can replace older patterns (e.g., `String.isBlank`, `strip`, `Files.readString`).
+### 4.1 Collections and Streams
+* Replace `Arrays.asList(...)` with the immutable `List.of(...)` where appropriate and safe.
+* **Constraint**: `Stream.toList()` is not available in Java 11. Use `.collect(Collectors.toList())` instead.
 
----
+### 4.2 String Utilities
+* Use `String.isBlank()` instead of checking `trim().isEmpty()`.
+* Utilize `strip()`, `stripLeading()`, `stripTrailing()`, and `lines()` for cleaner string handling.
 
-### Date and Time
+### 4.3 IO Improvements
+* Prefer `Files.readString(Path)` for reading entire files into strings where applicable.
 
-* Use modern classes like `LocalDate` etc. instead of legacy `Date` or `Calendar` where applicable and safe.
+### 4.4 Date and Time API
+* Transition from legacy `java.util.Date` and `java.util.Calendar` to the modern `java.time` package (e.g., `LocalDate`, `LocalDateTime`, `ZonedDateTime`).
 
----
+### 4.5 DatatypeConverter (JAXB Removal)
+* `javax.xml.bind.DatatypeConverter` was removed from the JDK 11.
+* **Replacement for Hex**: Use `new java.math.BigInteger(hex, 16).toByteArray()` or a dedicated utility class.
+* **Replacement for Base64**: Use the native `java.util.Base64` class.
 
-### DatatypeConverter (JAXB removal)
-
-* **Rule**: Replace `javax.xml.bind.DatatypeConverter` as it was removed from the JDK 11.
-* **Replacement**:
-    * For Hex binary: Use `new java.math.BigInteger(hex, 16).toByteArray()` or a custom hex utility.
-    * For Base64: Use `java.util.Base64`.
-* **Note**: Avoid adding `jaxb-api` just for hex/base64 utilities if native alternatives exist.
-
----
-
-### Local Variables
-
-* Use `var` only when the type is obvious and improves readability
-
-Example:
-
-```java
-var list = new ArrayList<String>();
-```
+### 4.6 Local Variable Type Inference
+* Use the `var` keyword only when the type is clearly obvious from the right-hand side of the assignment (e.g., `var list = new ArrayList<String>();`).
 
 ---
 
-### HTTP Client
+## 5. Security Modernization (Mandatory)
 
-* Suggest Java 11 HttpClient only if an old or legacy client is detected
+### 5.1 SQL Injection Prevention
+* **Rule**: Eliminate string concatenation in SQL queries.
+* **Action**: Convert unsafe queries to use `PreparedStatement` with parameterized placeholders (`?`).
 
----
+### 5.2 Hardcoded Credentials
+* **Rule**: Do not store passwords, secrets, or API keys in source code.
+* **Action**: Retrieve sensitive data from environment variables (`System.getenv`) or via Spring's `@Value` annotation.
 
-### Underscore Restriction
+### 5.3 Cross-Site Scripting (XSS)
+* **Rule**: Sanitize user-provided input before including it in HTML or web responses.
+* **Action**: Use standard sanitization libraries or escape functions (e.g., `HtmlUtils.htmlEscape`).
 
-* Do not use `_` as a variable name (invalid in Java 11)
+### 5.4 Path Traversal
+* **Rule**: Validate all user-controlled file paths.
+* **Action**: Use `Path.normalize()` and verify that the resulting path remains within the intended base directory.
 
----
-
-## Security Modernization Rules (Critical)
-
-### SQL Injection
-* **Rule**: Replace string concatenation in SQL queries with Parameterized Queries or Prepared Statements.
-* **Identify**: Look for SQL strings built using `+` with method parameters.
-* **Example Fix**: Replace `"WHERE name = '" + name + "'"` with `"WHERE name = ?"` and use `preparedStatement.setString(1, name)`.
-
-### Hardcoded Credentials
-* **Rule**: Never hardcode passwords or secrets. Replace them with environment variable lookups (`System.getenv`) or configuration property injections (`@Value`).
-* **Identify**: Look for string comparisons like `"admin".equals(password)` or hardcoded API keys.
-
-### Cross-Site Scripting (XSS)
-* **Rule**: Sanitize user-controlled input before returning it in HTML responses. Avoid concatenating raw user input with HTML tags.
-* **Identify**: Look for `@RestController` methods returning strings concatenated with user parameters and HTML tags.
-* **Example Fix**: Use `HtmlUtils.htmlEscape(input)` or a similar sanitizer.
-
-### Path Traversal
-* **Rule**: Validate and normalize file paths using `normalize()` and check against a base directory. Do not allow direct concatenation of user input into file paths.
-* **Identify**: Look for `new File(...)` or `Paths.get(...)` using unvalidated user input.
-* **Example Fix**: Ensure the resolved path starts with the expected base directory.
-
-### Sensitive Information Leakage
-* **Rule**: Ensure `toString()`, logging, or API responses do not expose sensitive fields like `password`, `ssn`, or `apiKey`.
-* **Identify**: Look for `toString()` methods or DTO mapping that includes sensitive fields.
-* **Example Fix**: Explicitly exclude sensitive fields from `toString()` or JSON serialization.
+### 5.5 Sensitive Data Leakage
+* **Rule**: Prevent the exposure of sensitive fields (e.g., `password`, `ssn`) in logs or API responses.
+* **Action**: Remove these fields from `toString()` methods and ensure they are not serialized to JSON.
 
 ---
 
-## POM.xml Rules
-
-* Set Java version to 11
-* Update `maven-compiler-plugin` to version 3.11.0 or higher
-* Ensure compatibility with Java 11
-* Do not remove dependencies unless required
-
----
-
-## Common Java 11 Fixes
-
-### JAXB Issue
-
-If the following error appears:
-
-```
-javax.xml.bind not found
-```
-
-Then:
-
-* Add JAXB dependencies in `pom.xml`
+## 6. Build Configuration (pom.xml)
+* Update `maven-compiler-plugin` to version 3.11.0 or higher.
+* Ensure `<release>11</release>` or `<source>11</source>` and `<target>11</target>` properties are correctly set.
+* **JAXB Support**: If `javax.xml.bind` errors occur, add the necessary JAXB dependencies to the `pom.xml`.
+* **Lombok/MapStruct**: If compilation errors like `NoSuchFieldError: JCTree` appear, upgrade Lombok to >= 1.18.30 and MapStruct to >= 1.5.5.Final.
 
 ---
 
-### Lombok / MapStruct Issue
+## 7. Operational Guidelines for the Agent
+* **Iterative Fixes**: Focus on resolving the immediate compilation error reported by the build.
+* **Precision Edits**: When updating Java files, use the "search and replace" format to provide surgical changes rather than rewriting the full file.
+* **JSON Protocol**: All responses must strictly follow the JSON schema provided below for automated processing.
 
-If the following error appears:
-
-```
-NoSuchFieldError: JCTree
-```
-
-Then:
-
-* Upgrade Lombok to version 1.18.30 or higher
-* Upgrade MapStruct to version 1.5.5.Final or higher
-* Ensure `annotationProcessorPaths` is configured in `pom.xml`
-
----
-
-## Error Handling Rules
-
-* Always fix the root cause of the error
-* Prefer adding dependencies over removing code
-* Keep fixes minimal and targeted
-
----
-
-## Modification Strategy
-
-For Java files:
-
-* Apply small, precise changes
-* Do not rewrite the entire file
-* Do not delete existing logic unless required to fix a compilation issue
-* Preserve structure and flow of the original code
-* Return ONLY updated Java code (no explanation)
-
-For `pom.xml`:
-
-* Full update is allowed if necessary
-* Update Java version to 11
-* Update maven-compiler-plugin
-
----
-
-## Response Format (Mandatory)
-
-Return only JSON in the following format:
-
+### Response Schema
 ```json
 [
   {
-    "file": "path/to/file.java",
+    "file": "path/to/target/file.java",
     "edits": [
       {
-        "search": "EXACT EXISTING CODE",
-        "replace": "UPDATED CODE"
+        "search": "EXACT_ORIGINAL_CODE_BLOCK",
+        "replace": "MODERNIZED_CODE_BLOCK"
       }
     ]
   }
@@ -206,30 +101,7 @@ Return only JSON in the following format:
 
 ---
 
-## Important Constraints
-
-* The `search` value must match the exact code, including spacing
-* Keep edits small to avoid token limitations
-* Do not include explanations
-* Do not return partial JSON
-* Do NOT use APIs introduced after Java 11 (e.g., HexFormat, Stream.toList)
-* Ensure all replacements are strictly compatible with Java 11
-
----
-
-## Agent Behavior
-
-* Fix only the current error
-* Do not over-modify code
-* Ensure the build passes after applying the fix
-* Prefer safe and reversible changes
-
----
-
-## Final Goal
-
-The project should:
-
-* Compile successfully on Java 11
-* Maintain original functionality
-* Follow modern Java practices where safe
+## 8. Final Success Criteria
+1. The application compiles successfully using Java 11.
+2. All business functionality remains intact.
+3. Code adopts safe Java 11 syntax and passes basic security checks.

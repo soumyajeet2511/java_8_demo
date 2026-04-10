@@ -12,9 +12,9 @@ public class UserRepository {
     private List<User> users = new ArrayList<>();
 
     public UserRepository() {
-        users.add(new User(1, "Mike", "test1@gmail.com", LocalDate.now()));
-        users.add(new User(2, "John", "john@gmail.com", LocalDate.now()));
-        users.add(new User(3, "Alice", "alice@gmail.com", LocalDate.now()));
+        users.add(new User(1, "Mike", "test1@gmail.com", LocalDate.now(),""));
+        users.add(new User(2, "John", "john@gmail.com", LocalDate.now(),""));
+        users.add(new User(3, "Alice", "alice@gmail.com", LocalDate.now(),""));
     }
 
     public List<User> findAll() {

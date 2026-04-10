@@ -27,7 +27,6 @@ public class UserController {
     @PostMapping
     public String add(@RequestParam String name, @RequestParam String email) {
         service.addUser(name, email);
-        // VULNERABILITY: Reflected XSS (Simulated)
-        return "User added: <b>" + name + "</b>";
+        return "User added";
     }
 }

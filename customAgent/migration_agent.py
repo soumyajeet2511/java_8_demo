@@ -1,213 +1,547 @@
-import os
-import subprocess
+import ast
+import hashlib
 import json
+import os
 import re
-import shutil
-from openai_client import call_ai_cafe
+import subprocess
+from typing import Dict, Iterable, List, Optional, Sequence, Set
+
 from maven_parser import parse_maven_errors
+from openai_client import call_ai_cafe
 
-# --- CONFIGURATION ---
-PROJECT_ROOT = "/Users/kushagra/IdeaProjects/java_8_demo_dev_new"
-MD_PATH = os.path.join(PROJECT_ROOT, ".gemini/v8tov11Migration.md")
-MAX_ITERATIONS = 20
+# --- Configuration ---
+PROJECT_ROOT = "/Users/kushagra/IdeaProjects/java_8_demo_python_agent"
+MIGRATION_RULES_PATH = os.path.join(PROJECT_ROOT, ".gemini/v8tov11Migration.md")
+MAX_FIX_ITERATIONS = 40
+MAX_ERRORS_PER_ITERATION = 5
+MAX_FILES_PER_FIX = 3
+DEBUG_DIR = os.path.join(PROJECT_ROOT, ".agent_debug")
+SKIP_PROACTIVE_SCAN = os.getenv("SKIP_PROACTIVE_SCAN", "").strip().lower() in {"1", "true", "yes"}
+APPLICATION_FAILURE_KEYWORDS = (
+    "illegalstate",
+    "nullpointer",
+    "environment",
+    "not set",
+    "beancreation",
+    "failed to load",
+    "something went wrong",
+    "exception",
+)
 
-def find_mvn():
-    wrapper = os.path.join(PROJECT_ROOT, "mvnw")
-    return wrapper if os.path.exists(wrapper) else "mvn"
 
-MVN_COMMAND = find_mvn()
+def find_maven_executable():
+    """
+    Locates the Maven wrapper (mvnw) if available, otherwise defaults to mvn.
+    """
+    wrapper_path = os.path.join(PROJECT_ROOT, "mvnw")
+    return wrapper_path if os.path.exists(wrapper_path) else "mvn"
 
-class MigrationAgent:
+
+MAVEN_COMMAND = find_maven_executable()
+
+
+class JavaMigrationAgent:
+    """
+    Migrates a Java 8 codebase to Java 11 using a proactive modernization pass
+    followed by an autonomous build-fix loop.
+    """
+
     def __init__(self, project_root):
-        self.root = project_root
-        self.iteration = 0
-        self.instructions = self._read_instructions()
+        self.project_root = project_root
+        self.current_iteration = 0
+        self.migration_rules = self._load_migration_rules()
+        self.error_fingerprints: Dict[str, int] = {}
+        os.makedirs(DEBUG_DIR, exist_ok=True)
 
-    def _read_instructions(self):
-        with open(MD_PATH, "r") as f:
-            return f.read()
-
-    def run_build(self):
-        print(f"\n--- [Iteration {self.iteration}] 🏗️ Building Project ---")
-        result = subprocess.run(
-            [MVN_COMMAND, "clean", "compile"],
-            cwd=self.root, capture_output=True, text=True
-        )
-        return result.returncode == 0, result.stdout + result.stderr
-
-    def get_all_java_files(self):
-        java_files = []
-        for root, dirs, files in os.walk(os.path.join(self.root, "src/main/java")):
-            for file in files:
-                if file.endswith(".java"):
-                    java_files.append(os.path.join(root, file))
-        return java_files
-
-    def extract_json(self, text):
-        """Robustly extracts JSON from AI response, even if malformed or surrounded by text."""
+    def _load_migration_rules(self):
+        """Loads migration guidelines from the Markdown file."""
         try:
-            # Look for the last json block (often the most complete one)
-            matches = re.findall(r'```json\s*(.*?)\s*```', text, re.DOTALL)
-            if matches:
-                # Clean up common JSON errors from AI (like trailing commas)
-                clean_json = re.sub(r',\s*([}\]])', r'\1', matches[-1].strip())
-                return json.loads(clean_json)
+            with open(MIGRATION_RULES_PATH, "r", encoding="utf-8") as file_handle:
+                return file_handle.read()
+        except FileNotFoundError:
+            print(f"Error: Migration rules file not found at {MIGRATION_RULES_PATH}")
+            raise SystemExit(1)
 
-            # Fallback: try to find anything between [ and ]
-            match = re.search(r'\[\s*{.*}\s*\]', text, re.DOTALL)
-            if match:
-                return json.loads(match.group(0))
+    def _run_maven_build(self):
+        """Executes mvn clean install in the project root."""
+        self.current_iteration += 1
+        print(f"\n--- [Iteration {self.current_iteration}] Building Project ---")
+        try:
+            result = subprocess.run(
+                [MAVEN_COMMAND, "clean", "install"],
+                cwd=self.project_root,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            return result.returncode == 0, result.stdout + result.stderr
+        except Exception as exc:
+            print(f"Build execution error: {exc}")
+            raise SystemExit(1)
 
-            # Fallback for when AI returns a single object instead of a list
-            match_obj = re.search(r'{\s*".*}\s*', text, re.DOTALL)
-            if match_obj:
-                obj = json.loads(match_obj.group(0))
-                return [obj] if isinstance(obj, dict) else obj
+    def _write_debug_artifact(self, name: str, content: str):
+        debug_path = os.path.join(DEBUG_DIR, name)
+        with open(debug_path, "w", encoding="utf-8") as file_handle:
+            file_handle.write(content)
 
-        except Exception as e:
-            print(f"   ⚠️ JSON extraction failed: {e}")
+    def _find_file_path(self, identifier):
+        """Finds a file from an absolute path, relative path, or basename."""
+        if not identifier:
+            return None
+
+        if os.path.isabs(identifier) and os.path.exists(identifier):
+            return identifier
+
+        normalized_identifier = identifier.lstrip(os.sep)
+        full_path_candidate = os.path.join(self.project_root, normalized_identifier)
+        if os.path.exists(full_path_candidate):
+            return full_path_candidate
+
+        filename_only = os.path.basename(identifier)
+        for root, dirnames, files in os.walk(self.project_root):
+            dirnames[:] = [name for name in dirnames if name not in {"target", ".git", ".idea", ".agent_debug"}]
+            if filename_only in files:
+                full_path = os.path.join(root, filename_only)
+                if os.sep in normalized_identifier and normalized_identifier.replace(".", os.sep) in full_path:
+                    return full_path
+                if os.sep not in normalized_identifier:
+                    return full_path
         return None
 
-    def apply_updates(self, updates):
-        if not updates: return False
+    def _get_all_java_source_files(self):
+        """Recursively finds all .java files in src/main/java."""
+        java_files = []
+        source_dir = os.path.join(self.project_root, "src/main/java")
+        if not os.path.exists(source_dir):
+            return []
+        for root, _, files in os.walk(source_dir):
+            for file_name in files:
+                if file_name.endswith(".java"):
+                    java_files.append(os.path.join(root, file_name))
+        return java_files
 
-        # Ensure updates is a list
+    def _extract_code_fences(self, text: str) -> List[str]:
+        matches = re.findall(r"```(?:json)?\s*(.*?)\s*```", text, re.DOTALL)
+        return [match.strip() for match in matches if match.strip()]
+
+    def _extract_balanced_candidates(self, text: str) -> List[str]:
+        candidates = []
+        for opener, closer in (("[", "]"), ("{", "}")):
+            start = text.find(opener)
+            while start != -1:
+                depth = 0
+                for index in range(start, len(text)):
+                    char = text[index]
+                    if char == opener:
+                        depth += 1
+                    elif char == closer:
+                        depth -= 1
+                        if depth == 0:
+                            candidates.append(text[start:index + 1])
+                            break
+                start = text.find(opener, start + 1)
+        candidates.sort(key=len, reverse=True)
+        return candidates
+
+    def _parse_json_candidate(self, candidate: str):
+        payload = candidate.strip()
+        if not payload:
+            return None
+
+        parse_attempts = [
+            payload,
+            re.sub(r",\s*([}\]])", r"\1", payload),
+        ]
+        for attempt in parse_attempts:
+            try:
+                parsed = json.loads(attempt)
+                return [parsed] if isinstance(parsed, dict) else parsed
+            except Exception:
+                continue
+
+        try:
+            parsed = ast.literal_eval(payload)
+            if isinstance(parsed, dict):
+                return [parsed]
+            if isinstance(parsed, list):
+                return parsed
+        except Exception:
+            return None
+        return None
+
+    def _extract_json_from_ai_response(self, text):
+        """Extracts JSON updates from a free-form AI response."""
+        if not text:
+            return None
+
+        candidates = []
+        candidates.extend(self._extract_code_fences(text))
+        candidates.extend(self._extract_balanced_candidates(text))
+        candidates.append(text.strip())
+
+        for candidate in candidates:
+            parsed = self._parse_json_candidate(candidate)
+            if parsed:
+                return parsed
+        return None
+
+    def _normalize_text(self, text: str) -> str:
+        return text.replace("\r\n", "\n")
+
+    def _apply_edits(self, current_content: str, edits: Sequence[dict]) -> str:
+        modified_content = current_content
+        for edit in edits:
+            search_text = edit.get("search")
+            replace_text = edit.get("replace")
+            if not search_text or replace_text is None:
+                continue
+
+            if search_text in modified_content:
+                modified_content = modified_content.replace(search_text, replace_text)
+                continue
+
+            normalized_content = self._normalize_text(modified_content)
+            normalized_search = self._normalize_text(search_text)
+            if normalized_search in normalized_content:
+                normalized_replace = self._normalize_text(replace_text)
+                normalized_content = normalized_content.replace(normalized_search, normalized_replace)
+                modified_content = normalized_content
+                continue
+
+            stripped_search = search_text.strip()
+            if stripped_search and stripped_search in modified_content:
+                modified_content = modified_content.replace(stripped_search, replace_text)
+
+        return modified_content
+
+    def _apply_code_updates(self, updates):
+        """Applies file overwrites or edits and returns the changed file paths."""
+        if not updates:
+            return set()
+
         if isinstance(updates, dict):
             updates = [updates]
 
-        applied = False
-        for up in updates:
-            if not isinstance(up, dict):
-                print(f"   ⚠️ Skipping invalid update item: {up}")
+        changed_files: Set[str] = set()
+        for update_item in updates:
+            if not isinstance(update_item, dict):
                 continue
 
-            file_path = up.get('file')
-            if not file_path: continue
+            file_identifier = update_item.get("file")
+            if not file_identifier:
+                continue
 
-            # Handle relative pathing
-            if os.path.isabs(file_path):
-                full_path = file_path
-            else:
-                full_path = os.path.join(self.root, file_path.lstrip("/"))
+            full_file_path = self._find_file_path(file_identifier)
+            if not full_file_path:
+                print(f"Warning: File not found: {file_identifier}")
+                continue
 
-            content = up.get('content')
-            edits = up.get('edits', [])
+            with open(full_file_path, "r", encoding="utf-8") as file_handle:
+                current_content = file_handle.read()
 
-            if content:
-                print(f"💾 OVERWRITING: {file_path}")
-                os.makedirs(os.path.dirname(full_path), exist_ok=True)
-                with open(full_path, "w", encoding="utf-8") as f:
-                    f.write(content)
-                applied = True
+            new_content = update_item.get("content")
+            edits = update_item.get("edits") or []
+            modified_content = current_content
+
+            if new_content is not None:
+                modified_content = new_content
             elif edits:
-                if not os.path.exists(full_path): continue
-                with open(full_path, "r") as f:
-                    text = f.read()
-                orig = text
-                for edit in edits:
-                    s, r = edit.get('search'), edit.get('replace')
-                    if s and s in text:
-                        text = text.replace(s, r)
-                        print(f"💾 PATCHING: {file_path}")
-                        applied = True
-                if text != orig:
-                    with open(full_path, "w") as f:
-                        f.write(text)
-        return applied
+                modified_content = self._apply_edits(current_content, edits)
 
-    def scan_and_improve(self):
-        print("\n🔍 Phase 1: Identifying and applying Java 11 improvements...")
+            if modified_content != current_content:
+                os.makedirs(os.path.dirname(full_file_path), exist_ok=True)
+                with open(full_file_path, "w", encoding="utf-8") as file_handle:
+                    file_handle.write(modified_content)
+                rel_path = os.path.relpath(full_file_path, self.project_root)
+                action = "Overwriting" if new_content is not None else "Patching"
+                print(f"{action} file: {rel_path}")
+                changed_files.add(full_file_path)
 
-        # 1. First, check pom.xml to update Java version to 11
-        pom_path = os.path.join(self.root, "pom.xml")
+        return changed_files
+
+    def _perform_proactive_modernization(self):
+        """Phase 1: Applies initial Java 11 modernizations and security fixes."""
+        print("\nPhase 1: Proactive Modernization Scan")
+
+        pom_path = os.path.join(self.project_root, "pom.xml")
         if os.path.exists(pom_path):
-            print("📦 Checking pom.xml for Java version update...")
-            with open(pom_path, "r") as f:
-                content = f.read()
+            print("Modernizing build configuration (pom.xml)...")
+            with open(pom_path, "r", encoding="utf-8") as file_handle:
+                content = file_handle.read()
+            prompt = (
+                f"{self.migration_rules}\n\nFILE: pom.xml\n{content}\n\n"
+                "Task: Update to Java 11. Return JSON: [{'file': 'pom.xml', 'content': '...'}]"
+            )
+            self._apply_code_updates(self._extract_json_from_ai_response(call_ai_cafe(prompt)))
 
-            prompt = f"{self.instructions}\n\nFILE: pom.xml\n{content}\n\nTask: Update Java version from 1.8 to 11 and any other relevant dependencies. Return the full content in JSON format like this: [{{'file': 'pom.xml', 'content': '...'}}]"
-            response = call_ai_cafe(prompt)
-            updates = self.extract_json(response)
-            if updates:
-                self.apply_updates(updates)
+        for file_path in self._get_all_java_source_files():
+            rel_path = os.path.relpath(file_path, self.project_root)
+            print(f"Modernizing {rel_path}...")
+            with open(file_path, "r", encoding="utf-8") as file_handle:
+                content = file_handle.read()
+            prompt = (
+                f"{self.migration_rules}\n\nFILE: {rel_path}\n{content}\n\n"
+                "Task: Migrate this file to Java 11 and apply security fixes for ALL occurrences. "
+                "Return JSON edits."
+            )
+            self._apply_code_updates(self._extract_json_from_ai_response(call_ai_cafe(prompt)))
 
-        # 2. Scan all Java files
-        java_files = self.get_all_java_files()
-        for file_path in java_files:
-            rel_path = os.path.relpath(file_path, self.root)
-            print(f"👀 Scanning {rel_path} for modernizations...")
-            with open(file_path, "r") as f:
-                content = f.read()
+    def _format_error_summary(self, errors: Sequence[dict]) -> str:
+        lines = []
+        for error in errors[:MAX_ERRORS_PER_ITERATION]:
+            file_name = error.get("file", "unknown")
+            line_num = error.get("line", 0)
+            column_num = error.get("column", 0)
+            message = error.get("message", "")
+            lines.append(f"- [{error.get('type', 'ERROR')}] {file_name}:{line_num}:{column_num} {message}")
+        return "\n".join(lines)
 
-            prompt = f"{self.instructions}\n\nFILE: {rel_path}\n{content}\n\nTask: Migrate this file to use Java 11 features (var, HttpClient, List.of, etc.) where appropriate. Return JSON edits like this: [{{'file': '{rel_path}', 'edits': [{{'search': '...', 'replace': '...'}}]}}]"
-            response = call_ai_cafe(prompt)
-            updates = self.extract_json(response)
-            if updates:
-                self.apply_updates(updates)
+    def _build_error_fingerprint(self, errors: Sequence[dict]) -> str:
+        parts = [f"{error.get('type')}|{error.get('file')}|{error.get('message')}" for error in errors[:MAX_ERRORS_PER_ITERATION]]
+        digest_input = "\n".join(parts)
+        return hashlib.sha256(digest_input.encode("utf-8")).hexdigest()
 
-    def execute(self):
-        print("🤖 Starting Autonomous Migration Agent...")
+    def _get_related_files(self, primary_file: str, errors: Sequence[dict]) -> List[str]:
+        related_files = []
+        seen = set()
 
-        # Step 1: Proactive Scan and Migration
-        self.scan_and_improve()
+        def add_file(candidate: Optional[str]):
+            if not candidate:
+                return
+            resolved = self._find_file_path(candidate)
+            if resolved and resolved not in seen:
+                seen.add(resolved)
+                related_files.append(resolved)
 
-        # Step 2: Reactive Fix Loop
-        print("\n🔧 Phase 2: Reactive Build-Fix Loop...")
-        while self.iteration < MAX_ITERATIONS:
-            self.iteration += 1
-            success, log = self.run_build()
-
-            if success:
-                print("\n✅ SUCCESS: Migration complete! Project built successfully.")
+        add_file(primary_file)
+        for error in errors:
+            add_file(error.get("file"))
+            if len(related_files) >= MAX_FILES_PER_FIX:
                 break
 
-            errors = parse_maven_errors(log)
-            # Focus on the FIRST error only to ensure precision
-            if errors:
-                err = errors[0]
-                target = os.path.relpath(err['file'], self.root) if os.path.isabs(err['file']) else err['file']
-                msg = f"{err['message']} (Line {err['line']})"
-            else:
-                target = "pom.xml"
-                msg = log[-1000:] # Last part of the log
+        return related_files
 
-            print(f"\n📍 CURRENT ERROR: {msg} in {target}")
+    def _guess_production_files_for_test(self, test_file_identifier: Optional[str]) -> List[str]:
+        if not test_file_identifier:
+            return []
 
-            # Send file content and error to AI
-            full_target_path = os.path.join(self.root, target)
-            if not os.path.exists(full_target_path):
-                print(f"❌ Error: File not found {full_target_path}")
+        test_name = os.path.basename(test_file_identifier)
+        if not test_name.endswith("Test.java"):
+            return []
+
+        base_name = test_name.replace("Test.java", ".java")
+        candidates: List[str] = []
+        seen: Set[str] = set()
+
+        def add_candidate(file_identifier: str):
+            resolved = self._find_file_path(file_identifier)
+            if resolved and resolved not in seen:
+                seen.add(resolved)
+                candidates.append(resolved)
+
+        add_candidate(base_name)
+
+        if base_name.endswith("Controller.java"):
+            service_candidate = base_name.replace("Controller.java", "Service.java")
+            add_candidate(service_candidate)
+        elif base_name.endswith("Service.java"):
+            repository_candidate = base_name.replace("Service.java", "Repository.java")
+            add_candidate(repository_candidate)
+
+        return candidates
+
+    def _is_application_side_test_failure(self, errors: Sequence[dict]) -> bool:
+        for error in errors:
+            if error.get("type") != "TEST_FAILURE":
+                continue
+            message = (error.get("message") or "").lower()
+            if any(keyword in message for keyword in APPLICATION_FAILURE_KEYWORDS):
+                return True
+        return False
+
+    def _compose_file_context(self, file_paths: Iterable[str]) -> str:
+        context_chunks = []
+        for file_path in file_paths:
+            with open(file_path, "r", encoding="utf-8") as file_handle:
+                content = file_handle.read()
+            rel_path = os.path.relpath(file_path, self.project_root)
+            context_chunks.append(f"FILE CONTENT ({rel_path}):\n```java\n{content}\n```")
+        return "\n\n".join(context_chunks)
+
+    def _build_fix_prompt(self, errors: Sequence[dict], build_logs: str, target_files: Sequence[str], repeated_error: bool) -> str:
+        error_summary = self._format_error_summary(errors)
+        file_context = self._compose_file_context(target_files)
+        repeated_instruction = ""
+        if repeated_error:
+            repeated_instruction = (
+                "\nThe last attempt did not change the build outcome. "
+                "Do not return search/replace edits. Rewrite the full contents of every impacted file."
+            )
+
+        test_failure_instruction = ""
+        if any(error.get("type") == "TEST_FAILURE" for error in errors):
+            test_failure_instruction = (
+                "\nTEST FAILURE RULES:\n"
+                "1. Prefer fixing production code or test setup when the failure is caused by runtime/configuration behavior.\n"
+                "2. Do not rewrite tests repeatedly if the same runtime exception is still present.\n"
+                "3. Only change test expectations when the application behavior intentionally changed and is now correct.\n"
+            )
+
+        return (
+            f"{self.migration_rules}\n"
+            "You are in the reactive build-fix phase of an autonomous migration agent.\n"
+            "Fix the current build failures in one response.\n"
+            f"{repeated_instruction}\n"
+            "\nBUILD ERRORS:\n"
+            f"{error_summary}\n"
+            "\nRECENT BUILD LOG TAIL:\n"
+            f"```text\n{build_logs[-4000:]}\n```\n"
+            "\nRESPONSE RULES:\n"
+            "1. Return ONLY a JSON array.\n"
+            "2. Each item must contain 'file' and full replacement 'content'.\n"
+            "3. Do not return search/replace edits for reactive fixes.\n"
+            "4. If multiple files are required, include all of them in the same array.\n"
+            "5. Preserve package names and imports unless the fix requires changing them.\n"
+            f"{test_failure_instruction}"
+            "\nTARGET FILES:\n"
+            f"{file_context}\n"
+        )
+
+    def _request_fix_updates(self, errors: Sequence[dict], build_logs: str, target_files: Sequence[str], repeated_error: bool):
+        prompt = self._build_fix_prompt(errors, build_logs, target_files, repeated_error)
+        target_name = ", ".join(os.path.basename(path) for path in target_files)
+        print(f"Requesting specialized AI fix for {target_name}...")
+        ai_response = call_ai_cafe(prompt)
+
+        iteration_label = f"iter_{self.current_iteration:02d}"
+        self._write_debug_artifact(f"{iteration_label}_response.txt", ai_response)
+
+        proposed_updates = self._extract_json_from_ai_response(ai_response)
+        if proposed_updates is None:
+            self._write_debug_artifact(f"{iteration_label}_unparsed_response.txt", ai_response)
+            print("Warning: AI response did not contain parseable JSON updates.")
+        return proposed_updates
+
+    def _fallback_full_file_retry(self, errors: Sequence[dict], build_logs: str, target_files: Sequence[str]):
+        retry_prompt = self._build_fix_prompt(errors, build_logs, target_files, repeated_error=True)
+        retry_prompt += (
+            "\nReturn the exact corrected file bodies for the files above. "
+            "If one file is malformed, rewrite the entire file from scratch."
+        )
+        print("Retrying with strict full-file rewrite prompt...")
+        ai_response = call_ai_cafe(retry_prompt)
+        iteration_label = f"iter_{self.current_iteration:02d}_retry"
+        self._write_debug_artifact(f"{iteration_label}_response.txt", ai_response)
+        return self._extract_json_from_ai_response(ai_response)
+
+    def _select_fix_batch(self, errors: Sequence[dict], build_logs: str):
+        if not errors:
+            fallback_file = os.path.join(self.project_root, "pom.xml")
+            fallback_error = {
+                "type": "GENERAL_FAILURE",
+                "file": "pom.xml",
+                "line": 0,
+                "column": 0,
+                "message": "General build failure. Inspect recent build logs.",
+            }
+            return [fallback_error], [fallback_file]
+
+        selected_errors = list(errors[:MAX_ERRORS_PER_ITERATION])
+        primary_identifier = selected_errors[0].get("file")
+        primary_file = self._find_file_path(primary_identifier) if primary_identifier else None
+
+        if not primary_file and primary_identifier:
+            basename_match = self._find_file_path(os.path.basename(primary_identifier))
+            primary_file = basename_match
+
+        target_files: List[str] = []
+
+        if any(error.get("type") == "TEST_FAILURE" for error in selected_errors):
+            seen: Set[str] = set()
+
+            def add_target(candidate: Optional[str]):
+                if candidate and candidate not in seen:
+                    seen.add(candidate)
+                    target_files.append(candidate)
+
+            app_side_failure = self._is_application_side_test_failure(selected_errors)
+            for error in selected_errors:
+                if error.get("type") != "TEST_FAILURE":
+                    continue
+                production_files = self._guess_production_files_for_test(error.get("file"))
+                if app_side_failure:
+                    for production_file in production_files:
+                        add_target(production_file)
+                resolved_test = self._find_file_path(error.get("file"))
+                if not app_side_failure and resolved_test:
+                    add_target(resolved_test)
+                elif resolved_test:
+                    add_target(resolved_test)
+                if len(target_files) >= MAX_FILES_PER_FIX:
+                    break
+
+            if primary_file:
+                add_target(primary_file)
+        else:
+            target_files = self._get_related_files(primary_file or primary_identifier, selected_errors)
+
+        if not target_files and primary_file:
+            target_files = [primary_file]
+        if not target_files:
+            target_files = [os.path.join(self.project_root, "pom.xml")]
+
+        target_files = target_files[:MAX_FILES_PER_FIX]
+
+        return selected_errors, target_files
+
+    def start_migration(self):
+        """Initiates the migration process and enters the reactive build-fix loop."""
+        print("Starting Automated Java Migration Agent...")
+
+        if SKIP_PROACTIVE_SCAN:
+            print("\nPhase 1: Proactive Modernization Scan")
+            print("Skipping proactive scan because SKIP_PROACTIVE_SCAN is enabled.")
+        else:
+            self._perform_proactive_modernization()
+
+        print("\nPhase 2: Reactive Build-Fix Loop")
+        while self.current_iteration < MAX_FIX_ITERATIONS:
+            is_build_successful, build_logs = self._run_maven_build()
+            self._write_debug_artifact(f"iter_{self.current_iteration:02d}_build.log", build_logs)
+
+            if is_build_successful:
+                print("\nSUCCESS: Project successfully migrated and built.")
                 break
 
-            with open(full_target_path, "r") as f:
-                content = f.read()
+            errors = parse_maven_errors(build_logs)
+            selected_errors, target_files = self._select_fix_batch(errors, build_logs)
+            fingerprint = self._build_error_fingerprint(selected_errors)
+            self.error_fingerprints[fingerprint] = self.error_fingerprints.get(fingerprint, 0) + 1
+            repeated_error = self.error_fingerprints[fingerprint] > 1
 
-            prompt = f"""
-{self.instructions}
+            primary_file = target_files[0]
+            target_rel_path = os.path.relpath(primary_file, self.project_root)
+            print(f"Error Detected: {selected_errors[0]['type']} in {target_rel_path}")
+            print("Fix batch:")
+            print(self._format_error_summary(selected_errors))
 
-### ERROR:
-{msg}
+            proposed_updates = self._request_fix_updates(selected_errors, build_logs, target_files, repeated_error)
+            changed_files = self._apply_code_updates(proposed_updates)
 
-### FILE CONTENT ({target}):
-{content}
+            if not changed_files:
+                retry_updates = self._fallback_full_file_retry(selected_errors, build_logs, target_files)
+                changed_files = self._apply_code_updates(retry_updates)
 
-### TASK:
-Fix the error above for Java 11.
-If it is pom.xml, you can return the full "content" or "edits".
-If it is a Java file, prefer "edits" (search/replace).
-Respond ONLY with JSON.
-```json
-[ {{ "file": "{target}", "edits": [ {{"search": "...", "replace": "..."}} ] }} ]
-```
-"""
-            print("🧠 AI is analyzing fix...")
-            response = call_ai_cafe(prompt)
-            updates = self.extract_json(response)
+            if not changed_files:
+                print(f"Warning: No changes applied for current error batch affecting {target_rel_path}.")
+                continue
 
-            if not self.apply_updates(updates):
-                print("❌ Failed to apply AI fix. Check the logs.")
-                # We stop if we can't apply a fix to prevent infinite loops
-                break
+            changed_rel_paths = [os.path.relpath(path, self.project_root) for path in sorted(changed_files)]
+            print(f"Applied changes to: {', '.join(changed_rel_paths)}")
+        else:
+            print(f"\nWarning: Migration did not complete within {MAX_FIX_ITERATIONS} iterations. Manual intervention may be required.")
+
 
 if __name__ == "__main__":
-    MigrationAgent(PROJECT_ROOT).execute()
+    agent = JavaMigrationAgent(PROJECT_ROOT)
+    agent.start_migration()
