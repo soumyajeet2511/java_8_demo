@@ -4,6 +4,7 @@ import org.example.model.User;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
+import java.time.Month;
 import java.util.*;
 
 @Repository
@@ -12,9 +13,12 @@ public class UserRepository {
     private List<User> users = new ArrayList<>();
 
     public UserRepository() {
-        users.add(new User(1, "Mike", "test1@gmail.com", LocalDate.now(),""));
-        users.add(new User(2, "John", "john@gmail.com", LocalDate.now(),""));
-        users.add(new User(3, "Alice", "alice@gmail.com", LocalDate.now(),""));
+        users.add(new User(1, "Mike", "test1@gmail.com", LocalDate.of(Integer.parseInt("2026"), Month.APRIL,13),""));
+        users.add(new User(2, "John", "john@gmail.com",LocalDate.of(Integer.parseInt("2026"), Month.APRIL,14),""));
+        users.add(new User(3, "Alice", "alice@gmail.com", LocalDate.of(Integer.parseInt("2026"), Month.APRIL,13),""));
+        users.add(new User(4, "Allen", "Allen@gmail.com", LocalDate.of(Integer.parseInt("2026"), Month.APRIL,11),""));
+        users.add(new User(5, "Martha", "Martha@gmail.com",LocalDate.of(Integer.parseInt("2026"), Month.MARCH,29),""));
+        users.add(new User(6, "Mickael", "Mickael@gmail.com", LocalDate.of(Integer.parseInt("2026"), Month.MARCH,30),""));
     }
 
     public List<User> findAll() {

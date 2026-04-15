@@ -22,7 +22,7 @@ public class UserService {
     public List<UserDTO> getAllUsers() {
         return repository.findAll()
                 .stream()
-                .map(u -> new UserDTO(u.getId(), u.getName()))
+                .map(u -> new UserDTO(u.getId(), u.getName(), u.getEmail(),u.getCreatedDate()))
                 .collect(Collectors.toList());
     }
 
@@ -30,7 +30,7 @@ public class UserService {
         User user = repository.findById(id)
                 .orElseThrow(() -> new UserNotFoundException("User not found"));
 
-        return new UserDTO(user.getId(), user.getName());
+        return new UserDTO(user.getId(), user.getName(), user.getEmail(), user.getCreatedDate());
     }
 
     // VULNERABILITY: Hardcoded Credentials
