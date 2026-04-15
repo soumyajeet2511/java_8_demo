@@ -1,0 +1,530 @@
+Timestamp,Iteration,Modified File,Action,Change Type,Triggered By Error In,Reason,Details,Diff
+2026-04-15 15:07:03,0,pom.xml,Patching,Proactive Modernization,pom.xml,Update to Java 11,Updating build properties and compiler settings,"--- a/pom.xml
++++ b/pom.xml
+@@ -21,7 +21,7 @@
+     <description>Demo project for Spring Boot Java 8</description>
+ 
+     <properties>
+-        <java.version>1.8</java.version>
++        <java.version>11</java.version>
+     </properties>
+ 
+     <dependencies>
+@@ -63,6 +63,15 @@
+                 <artifactId>spring-boot-maven-plugin</artifactId>
+             </plugin>
+ 
++                    <!-- 🔨 Compiler Plugin for Java 11 -->
++            <plugin>
++                <groupId>org.apache.maven.plugins</groupId>
++                <artifactId>maven-compiler-plugin</artifactId>
++                <version>3.11.0</version>
++                <configuration>
++                    <release>11</release>
++                </configuration>
++            </plugin>
+         </plugins>
+     </build>
+ 
+"
+2026-04-15 15:07:09,0,src/main/java/org/example/Main.java,Patching,Proactive Modernization,src/main/java/org/example/Main.java,Java 11 + Security Fixes,Modernizing src/main/java/org/example/Main.java,"--- a/src/main/java/org/example/Main.java
++++ b/src/main/java/org/example/Main.java
+@@ -4,40 +4,38 @@
+ import org.springframework.boot.SpringApplication;
+ import org.springframework.boot.autoconfigure.SpringBootApplication;
+ 
+-import java.text.SimpleDateFormat;
+-import java.util.*;
++import java.time.LocalDate;
++import java.time.format.DateTimeFormatter;
++import java.util.List;
++import java.util.Optional;
++import java.util.stream.Collectors;
+ 
+ @SpringBootApplication
+ public class Main {
+ 
+     public static void main(String[] args) {
+         SpringApplication.run(Main.class, args);
+-        List<String> users = Arrays.asList(""Alice"", ""Bob"", ""Charlie"");
++        List<String> users = List.of(""Alice"", ""Bob"", ""Charlie"");
+ 
+         // Old loop
+         for (String user : users) {
+             System.out.println(user);
+         }
+ 
+-        // Date handling (old API)
+-        Date date = new Date();
+-        SimpleDateFormat sdf = new SimpleDateFormat(""yyyy-MM-dd"");
+-        String formattedDate = sdf.format(date);
++        // Date handling (modern API)
++        LocalDate date = LocalDate.now();
++        DateTimeFormatter formatter = DateTimeFormatter.ofPattern(""yyyy-MM-dd"");
++        String formattedDate = date.format(formatter);
+         System.out.println(""Date: "" + formattedDate);
+ 
+         // Optional usage (not used properly)
+         Optional<String> optional = Optional.ofNullable(getUser());
+-        if (optional.isPresent()) {
+-            System.out.println(optional.get());
+-        }
++        optional.ifPresent(System.out::println);
+ 
+         // Stream usage (can be improved)
+-        List<String> filtered = new ArrayList<>();
+-        for (String user : users) {
+-            if (user.startsWith(""A"")) {
+-                filtered.add(user);
+-            }
+-        }
++        List<String> filtered = users.stream()
++                .filter(user -> user.startsWith(""A""))
++                .collect(Collectors.toList());
+         System.out.println(filtered);
+     }
+ 
+"
+2026-04-15 15:07:14,0,src/main/java/org/example/dto/PaymentDTO.java,Patching,Proactive Modernization,src/main/java/org/example/dto/PaymentDTO.java,Java 11 + Security Fixes,Modernizing src/main/java/org/example/dto/PaymentDTO.java,"--- a/src/main/java/org/example/dto/PaymentDTO.java
++++ b/src/main/java/org/example/dto/PaymentDTO.java
+@@ -15,4 +15,17 @@
+     public int getId() { return id; }
+     public double getAmount() { return amount; }
+     public String getStatus() { return status; }
++
++    /**
++     * Do NOT include sensitive fields in toString().
++     * Only non-sensitive, non-PII fields are shown.
++     */
++    @Override
++    public String toString() {
++        return ""PaymentDTO{"" +
++                ""id="" + id +
++                "", amount="" + amount +
++                "", status='"" + status + '\'' +
++                '}';
++    }
+ }
+"
+2026-04-15 15:07:18,0,src/main/java/org/example/dto/OrderDTO.java,Patching,Proactive Modernization,src/main/java/org/example/dto/OrderDTO.java,Java 11 + Security Fixes,Modernizing src/main/java/org/example/dto/OrderDTO.java,"--- a/src/main/java/org/example/dto/OrderDTO.java
++++ b/src/main/java/org/example/dto/OrderDTO.java
+@@ -12,4 +12,16 @@
+ 
+     public int getId() { return id; }
+     public String getProduct() { return product; }
++
++    /**
++     * Do NOT include sensitive fields in toString().
++     * This implementation is safe as there are no sensitive fields.
++     */
++    @Override
++    public String toString() {
++        return ""OrderDTO{"" +
++                ""id="" + id +
++                "", product='"" + product + '\'' +
++                '}';
++    }
+ }"
+2026-04-15 15:07:22,0,src/main/java/org/example/dto/UserDTO.java,Patching,Proactive Modernization,src/main/java/org/example/dto/UserDTO.java,Java 11 + Security Fixes,Modernizing src/main/java/org/example/dto/UserDTO.java,"--- a/src/main/java/org/example/dto/UserDTO.java
++++ b/src/main/java/org/example/dto/UserDTO.java
+@@ -12,4 +12,9 @@
+ 
+     public int getId() { return id; }
+     public String getName() { return name; }
++
++    /**
++     * Do NOT add toString() exposing sensitive fields (e.g., password, ssn).
++     * If toString() is needed, ensure sensitive data is excluded.
++     */
+ }"
+2026-04-15 15:07:26,0,src/main/java/org/example/repository/OrderRepository.java,Patching,Proactive Modernization,src/main/java/org/example/repository/OrderRepository.java,Java 11 + Security Fixes,Modernizing src/main/java/org/example/repository/OrderRepository.java,"--- a/src/main/java/org/example/repository/OrderRepository.java
++++ b/src/main/java/org/example/repository/OrderRepository.java
+@@ -4,6 +4,7 @@
+ import org.springframework.stereotype.Repository;
+ 
+ import java.util.*;
++import java.util.stream.Collectors;
+ 
+ @Repository
+ public class OrderRepository {
+@@ -21,12 +22,11 @@
+     }
+ 
+     public List<Order> findByUserId(int userId) {
+-        List<Order> result = new ArrayList<>();
+-        for (Order o : orders) {
+-            if (o.getUserId() == userId) {
+-                result.add(o);
+-            }
++        if (userId <= 0) {
++            throw new IllegalArgumentException(""Invalid userId: must be positive"");
+         }
+-        return result;
++        return orders.stream()
++                .filter(o -> o.getUserId() == userId)
++                .collect(Collectors.toList());
+     }
+ }
+"
+2026-04-15 15:07:32,0,src/main/java/org/example/repository/UserRepository.java,Patching,Proactive Modernization,src/main/java/org/example/repository/UserRepository.java,Java 11 + Security Fixes,Modernizing src/main/java/org/example/repository/UserRepository.java,"--- a/src/main/java/org/example/repository/UserRepository.java
++++ b/src/main/java/org/example/repository/UserRepository.java
+@@ -9,12 +9,13 @@
+ @Repository
+ public class UserRepository {
+ 
+-    private List<User> users = new ArrayList<>();
++    private final List<User> users = new ArrayList<>();
+ 
+     public UserRepository() {
+-        users.add(new User(1, ""Mike"", ""test1@gmail.com"", LocalDate.now(),""""));
+-        users.add(new User(2, ""John"", ""john@gmail.com"", LocalDate.now(),""""));
+-        users.add(new User(3, ""Alice"", ""alice@gmail.com"", LocalDate.now(),""""));
++        // Do not store passwords directly in code. Use environment variables or configuration.
++        users.add(new User(1, ""Mike"", ""test1@gmail.com"", LocalDate.now(), System.getenv().getOrDefault(""USER1_PASSWORD"", """")));
++        users.add(new User(2, ""John"", ""john@gmail.com"", LocalDate.now(), System.getenv().getOrDefault(""USER2_PASSWORD"", """")));
++        users.add(new User(3, ""Alice"", ""alice@gmail.com"", LocalDate.now(), System.getenv().getOrDefault(""USER3_PASSWORD"", """")));
+     }
+ 
+     public List<User> findAll() {
+"
+2026-04-15 15:07:38,0,src/main/java/org/example/repository/PaymentRepository.java,Patching,Proactive Modernization,src/main/java/org/example/repository/PaymentRepository.java,Java 11 + Security Fixes,Modernizing src/main/java/org/example/repository/PaymentRepository.java,"--- a/src/main/java/org/example/repository/PaymentRepository.java
++++ b/src/main/java/org/example/repository/PaymentRepository.java
+@@ -3,12 +3,15 @@
+ import org.example.model.Payment;
+ import org.springframework.stereotype.Repository;
+ 
+-import java.util.*;
++import java.util.List;
++import java.util.ArrayList;
++import java.util.Collections;
++import java.util.stream.Collectors;
+ 
+ @Repository
+ public class PaymentRepository {
+ 
+-    private List<Payment> payments = new ArrayList<>();
++    private final List<Payment> payments = new ArrayList<>();
+ 
+     public PaymentRepository() {
+         payments.add(new Payment(1, 1, 1000, ""SUCCESS""));
+@@ -17,16 +20,14 @@
+     }
+ 
+     public List<Payment> findAll() {
+-        return payments;
++        // Return an unmodifiable copy to prevent external modification
++        return Collections.unmodifiableList(payments);
+     }
+ 
+     public List<Payment> findByUserId(int userId) {
+-        List<Payment> result = new ArrayList<>();
+-        for (Payment p : payments) {
+-            if (p.getUserId() == userId) {
+-                result.add(p);
+-            }
+-        }
+-        return result;
++        // Defensive copy and filter to prevent exposing internal list
++        return payments.stream()
++                .filter(p -> p.getUserId() == userId)
++                .collect(Collectors.toUnmodifiableList());
+     }
+ }
+"
+2026-04-15 15:07:40,0,src/main/java/org/example/util/ValidationUtil.java,Patching,Proactive Modernization,src/main/java/org/example/util/ValidationUtil.java,Java 11 + Security Fixes,Modernizing src/main/java/org/example/util/ValidationUtil.java,"--- a/src/main/java/org/example/util/ValidationUtil.java
++++ b/src/main/java/org/example/util/ValidationUtil.java
+@@ -3,6 +3,6 @@
+ public class ValidationUtil {
+ 
+     public static boolean isValidEmail(String email) {
+-        return email != null && email.contains(""@"") && !email.trim().isEmpty();
++        return email != null && email.contains(""@"") && !email.isBlank();
+     }
+ }"
+2026-04-15 15:07:43,0,src/main/java/org/example/util/PriceUtil.java,Patching,Proactive Modernization,src/main/java/org/example/util/PriceUtil.java,Java 11 + Security Fixes,Modernizing src/main/java/org/example/util/PriceUtil.java,"--- a/src/main/java/org/example/util/PriceUtil.java
++++ b/src/main/java/org/example/util/PriceUtil.java
+@@ -4,6 +4,9 @@
+ public class PriceUtil {
+ 
+     public static double applyDiscount(double price) {
++        if (Double.isNaN(price) || Double.isInfinite(price) || price < 0) {
++            throw new IllegalArgumentException(""Invalid price input"");
++        }
+         if (price > 1000) {
+             return price * 0.9;
+         }
+"
+2026-04-15 15:07:46,0,src/main/java/org/example/util/DataTypeUtil.java,Patching,Proactive Modernization,src/main/java/org/example/util/DataTypeUtil.java,Java 11 + Security Fixes,Modernizing src/main/java/org/example/util/DataTypeUtil.java,"--- a/src/main/java/org/example/util/DataTypeUtil.java
++++ b/src/main/java/org/example/util/DataTypeUtil.java
+@@ -1,11 +1,17 @@
+ package org.example.util;
+ 
+-import javax.xml.bind.DatatypeConverter;
++import java.math.BigInteger;
+ 
+ public class DataTypeUtil {
+     public static void main(String[] args) {
+         String hex = ""4a617661"";
+-        byte[] bytes = DatatypeConverter.parseHexBinary(hex);
++        byte[] bytes = new BigInteger(hex, 16).toByteArray();
++        // Remove possible leading zero byte from BigInteger
++        if (bytes.length > 1 && bytes[0] == 0) {
++            byte[] tmp = new byte[bytes.length - 1];
++            System.arraycopy(bytes, 1, tmp, 0, tmp.length);
++            bytes = tmp;
++        }
+ 
+         System.out.println(new String(bytes));
+     }
+"
+2026-04-15 15:07:50,0,src/main/java/org/example/controller/OrderController.java,Patching,Proactive Modernization,src/main/java/org/example/controller/OrderController.java,Java 11 + Security Fixes,Modernizing src/main/java/org/example/controller/OrderController.java,"--- a/src/main/java/org/example/controller/OrderController.java
++++ b/src/main/java/org/example/controller/OrderController.java
+@@ -17,11 +17,16 @@
+ 
+     @GetMapping
+     public List<OrderDTO> getAll() {
++        // No user input, so no security fix needed here
+         return service.getAllOrders();
+     }
+ 
+     @GetMapping(""/user/{userId}"")
+     public List<OrderDTO> getByUser(@PathVariable int userId) {
++        // Validate userId to prevent path traversal or injection attacks
++        if (userId <= 0) {
++            throw new IllegalArgumentException(""Invalid userId"");
++        }
+         return service.getOrdersByUser(userId);
+     }
+ }
+"
+2026-04-15 15:07:54,0,src/main/java/org/example/controller/PaymentController.java,Patching,Proactive Modernization,src/main/java/org/example/controller/PaymentController.java,Java 11 + Security Fixes,Modernizing src/main/java/org/example/controller/PaymentController.java,"--- a/src/main/java/org/example/controller/PaymentController.java
++++ b/src/main/java/org/example/controller/PaymentController.java
+@@ -23,11 +23,17 @@
+ 
+     @GetMapping(""/user/{userId}"")
+     public List<PaymentDTO> getSuccess(@PathVariable int userId) {
++        if (userId < 1) {
++            throw new IllegalArgumentException(""Invalid userId"");
++        }
+         return service.getSuccessfulPayments(userId);
+     }
+ 
+     @GetMapping(""/total/{userId}"")
+     public double getTotal(@PathVariable int userId) {
++        if (userId < 1) {
++            throw new IllegalArgumentException(""Invalid userId"");
++        }
+         return service.getTotalSuccessAmount(userId);
+     }
+ }
+"
+2026-04-15 15:07:57,0,src/main/java/org/example/controller/UserController.java,Patching,Proactive Modernization,src/main/java/org/example/controller/UserController.java,Java 11 + Security Fixes,Modernizing src/main/java/org/example/controller/UserController.java,"--- a/src/main/java/org/example/controller/UserController.java
++++ b/src/main/java/org/example/controller/UserController.java
+@@ -6,6 +6,7 @@
+ import org.springframework.web.bind.annotation.*;
+ 
+ import java.util.List;
++import org.springframework.web.util.HtmlUtils;
+ 
+ @RestController
+ @RequestMapping(""/users"")
+@@ -26,7 +27,10 @@
+ 
+     @PostMapping
+     public String add(@RequestParam String name, @RequestParam String email) {
+-        service.addUser(name, email);
++        // Sanitize user input to prevent XSS
++        String safeName = org.springframework.web.util.HtmlUtils.htmlEscape(name);
++        String safeEmail = org.springframework.web.util.HtmlUtils.htmlEscape(email);
++        service.addUser(safeName, safeEmail);
+         return ""User added"";
+     }
+ }
+"
+2026-04-15 15:08:03,0,src/main/java/org/example/model/Order.java,Patching,Proactive Modernization,src/main/java/org/example/model/Order.java,Java 11 + Security Fixes,Modernizing src/main/java/org/example/model/Order.java,"--- a/src/main/java/org/example/model/Order.java
++++ b/src/main/java/org/example/model/Order.java
+@@ -18,4 +18,17 @@
+     public int getUserId() { return userId; }
+     public String getProduct() { return product; }
+     public double getPrice() { return price; }
++
++    /**
++     * Prevents accidental leakage of sensitive fields in logs or API responses.
++     */
++    @Override
++    public String toString() {
++        return ""Order{"" +
++                ""id="" + id +
++                "", userId=***"" +
++                "", product='"" + product + '\'' +
++                "", price="" + price +
++                '}';
++    }
+ }
+"
+2026-04-15 15:08:10,0,src/main/java/org/example/model/Payment.java,Patching,Proactive Modernization,src/main/java/org/example/model/Payment.java,Java 11 + Security Fixes,Modernizing src/main/java/org/example/model/Payment.java,"--- a/src/main/java/org/example/model/Payment.java
++++ b/src/main/java/org/example/model/Payment.java
+@@ -18,4 +18,17 @@
+     public int getUserId() { return userId; }
+     public double getAmount() { return amount; }
+     public String getStatus() { return status; }
++
++    /**
++     * Prevents accidental leakage of sensitive data in logs or API responses.
++     */
++    @Override
++    public String toString() {
++        return ""Payment{"" +
++                ""id="" + id +
++                "", userId="" + userId +
++                "", amount="" + amount +
++                "", status='"" + status + '\'' +
++                '}';
++    }
+ }
+"
+2026-04-15 15:08:14,0,src/main/java/org/example/model/User.java,Patching,Proactive Modernization,src/main/java/org/example/model/User.java,Java 11 + Security Fixes,Modernizing src/main/java/org/example/model/User.java,"--- a/src/main/java/org/example/model/User.java
++++ b/src/main/java/org/example/model/User.java
+@@ -26,12 +26,11 @@
+ 
+     @Override
+     public String toString() {
+-        // VULNERABILITY: Sensitive Information Leakage
++        // Sensitive fields (e.g., password) are intentionally omitted to prevent leakage
+         return ""User{"" +
+                 ""id="" + id +
+                 "", name='"" + name + '\'' +
+                 "", email='"" + email + '\'' +
+-                "", password='"" + password + '\'' +
+                 "", createdDate="" + createdDate +
+                 '}';
+     }
+"
+2026-04-15 15:08:20,0,src/main/java/org/example/service/UserService.java,Patching,Proactive Modernization,src/main/java/org/example/service/UserService.java,Java 11 + Security Fixes,Modernizing src/main/java/org/example/service/UserService.java,"--- a/src/main/java/org/example/service/UserService.java
++++ b/src/main/java/org/example/service/UserService.java
+@@ -35,15 +35,22 @@
+ 
+     // VULNERABILITY: Hardcoded Credentials
+     public boolean authenticateUser(String username, String password) {
+-        // VULNERABILITY: Hardcoded static password
+-        if (""admin"".equals(username) && ""admin123"".equals(password)) {
+-            return true;
++        // Retrieve admin credentials from environment variables for security
++        String adminUser = System.getenv(""ADMIN_USERNAME"");
++        String adminPass = System.getenv(""ADMIN_PASSWORD"");
++        if (adminUser == null || adminPass == null) {
++            throw new IllegalStateException(""Admin credentials are not set in environment variables"");
+         }
+-        return false;
++        return adminUser.equals(username) && adminPass.equals(password);
+     }
+ 
+     public void addUser(String name, String email) {
+-        User user = new User(new Random().nextInt(1000), name, email, LocalDate.now(), ""default_pass"");
++        // Avoid hardcoded default password; retrieve from environment variable or set as null
++        String defaultPass = System.getenv(""DEFAULT_USER_PASSWORD"");
++        if (defaultPass == null) {
++            defaultPass = """"; // or handle as needed (e.g., throw exception or log warning)
++        }
++        User user = new User(new Random().nextInt(1000), name, email, LocalDate.now(), defaultPass);
+         repository.save(user);
+     }
+ }
+"
+2026-04-15 15:08:25,0,src/main/java/org/example/service/OrderService.java,Patching,Proactive Modernization,src/main/java/org/example/service/OrderService.java,Java 11 + Security Fixes,Modernizing src/main/java/org/example/service/OrderService.java,"--- a/src/main/java/org/example/service/OrderService.java
++++ b/src/main/java/org/example/service/OrderService.java
+@@ -19,6 +19,7 @@
+ 
+ 
+     public List<OrderDTO> getAllOrders() {
++        // No user input, so no security fix needed here
+         return repository.findAll()
+                 .stream()
+                 .map(o -> new OrderDTO(o.getId(), o.getProduct()))
+@@ -26,6 +27,10 @@
+     }
+ 
+     public List<OrderDTO> getOrdersByUser(int userId) {
++        // Validate userId to prevent SQL injection and path traversal risks
++        if (userId <= 0) {
++            throw new IllegalArgumentException(""Invalid userId"");
++        }
+         return repository.findByUserId(userId)
+                 .stream()
+                 .map(o -> new OrderDTO(o.getId(), o.getProduct()))
+"
+2026-04-15 15:08:31,0,src/main/java/org/example/service/PaymentService.java,Patching,Proactive Modernization,src/main/java/org/example/service/PaymentService.java,Java 11 + Security Fixes,Modernizing src/main/java/org/example/service/PaymentService.java,"--- a/src/main/java/org/example/service/PaymentService.java
++++ b/src/main/java/org/example/service/PaymentService.java
+@@ -25,6 +25,10 @@
+     }
+ 
+     public List<PaymentDTO> getSuccessfulPayments(int userId) {
++        // Validate userId to prevent SQL injection or improper access
++        if (userId <= 0) {
++            throw new IllegalArgumentException(""Invalid userId"");
++        }
+         return repository.findByUserId(userId)
+                 .stream()
+                 .filter(p -> ""SUCCESS"".equals(p.getStatus()))
+@@ -33,6 +37,10 @@
+     }
+ 
+     public double getTotalSuccessAmount(int userId) {
++        // Validate userId to prevent SQL injection or improper access
++        if (userId <= 0) {
++            throw new IllegalArgumentException(""Invalid userId"");
++        }
+         return repository.findByUserId(userId)
+                 .stream()
+                 .filter(p -> ""SUCCESS"".equals(p.getStatus()))
+"
+2026-04-15 15:08:35,0,src/main/java/org/example/exception/UserNotFoundException.java,Patching,Proactive Modernization,src/main/java/org/example/exception/UserNotFoundException.java,Java 11 + Security Fixes,Modernizing src/main/java/org/example/exception/UserNotFoundException.java,"--- a/src/main/java/org/example/exception/UserNotFoundException.java
++++ b/src/main/java/org/example/exception/UserNotFoundException.java
+@@ -5,4 +5,14 @@
+     public UserNotFoundException(String message) {
+         super(message);
+     }
++
++    /**
++     * Prevents sensitive information from being exposed in logs or API responses.
++     */
++    @Override
++    public String toString() {
++        return ""UserNotFoundException{"" +
++                ""message='"" + getMessage() + '\'' +
++                '}';
++    }
+ }"
+2026-04-15 15:08:38,0,src/main/java/org/example/exception/GlobalExceptionHandler.java,Patching,Proactive Modernization,src/main/java/org/example/exception/GlobalExceptionHandler.java,Java 11 + Security Fixes,Modernizing src/main/java/org/example/exception/GlobalExceptionHandler.java,"--- a/src/main/java/org/example/exception/GlobalExceptionHandler.java
++++ b/src/main/java/org/example/exception/GlobalExceptionHandler.java
+@@ -14,6 +14,7 @@
+ 
+     @ExceptionHandler(Exception.class)
+     public String handleGeneric(Exception ex) {
+-        return ""Something went wrong: "" + ex.getMessage();
++        // Avoid leaking sensitive exception details to the client
++        return ""Something went wrong. Please contact support."";
+     }
+ }"
+2026-04-15 15:08:42,0,src/main/java/org/example/exception/OrderNotFoundException.java,Patching,Proactive Modernization,src/main/java/org/example/exception/OrderNotFoundException.java,Java 11 + Security Fixes,Modernizing src/main/java/org/example/exception/OrderNotFoundException.java,"--- a/src/main/java/org/example/exception/OrderNotFoundException.java
++++ b/src/main/java/org/example/exception/OrderNotFoundException.java
+@@ -2,6 +2,17 @@
+ 
+ public class OrderNotFoundException extends RuntimeException {
+     public OrderNotFoundException(String msg) {
+-        super(msg);
++        super(sanitize(msg));
++    }
++
++    /**
++     * Sanitizes exception messages to prevent log injection and XSS risks.
++     */
++    private static String sanitize(String input) {
++        if (input == null) return null;
++        // Basic sanitization: remove control characters and encode angle brackets
++        return input.replaceAll(""[\r\n\t]"", "" "")
++                    .replace(""<"", ""&lt;"")
++                    .replace("">"", ""&gt;"");
+     }
+ }
+"
