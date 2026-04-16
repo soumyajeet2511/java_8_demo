@@ -58,6 +58,7 @@ class JavaMigrationAgent:
         self.error_fingerprints: Dict[str, int] = {}
         self.primary_failure_counts: Dict[str, int] = {}
         self.pre_reactive_snapshots: Dict[str, str] = {}
+        self.file_statuses: Dict[str, str] = {} # Store file path -> last action
         os.makedirs(DEBUG_DIR, exist_ok=True)
         self._initialize_csv_log()
 
@@ -65,10 +66,24 @@ class JavaMigrationAgent:
         """Initializes the CSV file with headers if it doesn't exist."""
         headers = ["Timestamp", "Iteration", "Modified File", "Action", "Change Type", "Triggered By Error In", "Reason", "Details", "Diff"]
         file_exists = os.path.isfile(LOG_FILE_PATH)
-        with open(LOG_FILE_PATH, mode="a", newline="", encoding="utf-8") as file:
-            writer = csv.writer(file)
-            if not file_exists:
+        if not file_exists:
+            with open(LOG_FILE_PATH, mode="w", newline="", encoding="utf-8") as file:
+                writer = csv.writer(file)
                 writer.writerow(headers)
+        else:
+            # Load existing file statuses from the CSV to maintain state across runs
+            try:
+                with open(LOG_FILE_PATH, mode="r", encoding="utf-8") as file:
+                    reader = csv.DictReader(file)
+                    for row in reader:
+                        if row.get("Timestamp") and "MIGRATION REPORT" not in row["Timestamp"]:
+                            rel_path = row.get("Modified File")
+                            action = row.get("Action")
+                            if rel_path and action:
+                                full_path = os.path.join(self.project_root, rel_path)
+                                self.file_statuses[full_path] = action
+            except Exception as e:
+                print(f"Warning: Could not read existing log for state: {e}")
 
     def _log_change_to_csv(self, file_path: str, action: str, change_type: str, triggered_by: str, reason: str, details: str, diff: str = ""):
         """Appends a new change record to the CSV log."""
@@ -77,6 +92,64 @@ class JavaMigrationAgent:
         with open(LOG_FILE_PATH, mode="a", newline="", encoding="utf-8") as file:
             writer = csv.writer(file)
             writer.writerow([timestamp, self.current_iteration, rel_path, action, change_type, triggered_by, reason, details, diff])
+        self.file_statuses[file_path] = action # Update the status for this file
+
+    def _generate_report(self):
+        """Generates a migration status report and appends it to the CSV."""
+        # Include all Java files and the pom.xml
+        all_project_files = set(self._get_all_java_source_files())
+        pom_path = os.path.join(self.project_root, "pom.xml")
+        if os.path.exists(pom_path):
+            all_project_files.add(pom_path)
+
+        migrated_files = {f for f, status in self.file_statuses.items() if status not in {"Skipped", "Restore"} and f in all_project_files}
+        skipped_files = {f for f, status in self.file_statuses.items() if status == "Skipped" and f in all_project_files}
+        pending_files = all_project_files - (migrated_files | skipped_files)
+
+        total_count = len(all_project_files)
+        migrated_count = len(migrated_files)
+        skipped_count = len(skipped_files)
+        pending_count = len(pending_files)
+        coverage_percent = ((migrated_count + skipped_count) / total_count * 100) if total_count > 0 else 0
+
+        timestamp = f"--- MIGRATION REPORT [{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ---"
+
+        report_rows = [
+            [timestamp, "", "", "", "", "", "", "", ""],
+            ["Metric", "Value", "", "", "", "", "", "", ""],
+            ["Total Migration Targets", total_count, "", "", "", "", "", "", ""],
+            ["Files Migrated (Changed)", migrated_count, "", "", "", "", "", "", ""],
+            ["Files Skipped (No Changes)", skipped_count, "", "", "", "", "", "", ""],
+            ["Files Pending (Not Processed)", pending_count, "", "", "", "", "", "", ""],
+            ["Migration Coverage (Processed)", f"{coverage_percent:.2f}%", "", "", "", "", "", "", ""],
+            ["", "", "", "", "", "", "", "", ""],
+            ["Status", "File Path", "Reason", "", "", "", "", "", ""],
+        ]
+
+        for f in sorted(migrated_files):
+            report_rows.append(["MIGRATED", os.path.relpath(f, self.project_root), self.file_statuses.get(f, "Changed by AI"), "", "", "", "", "", ""])
+        for f in sorted(skipped_files):
+            report_rows.append(["SKIPPED", os.path.relpath(f, self.project_root), "No changes required by AI", "", "", "", "", "", ""])
+        for f in sorted(pending_files):
+            report_rows.append(["PENDING", os.path.relpath(f, self.project_root), "Not yet processed by agent", "", "", "", "", "", ""])
+
+        report_rows.append(["", "", "", "", "", "", "", "", ""])
+        report_rows.append(["--- END OF REPORT ---", "", "", "", "", "", "", "", ""])
+
+        with open(LOG_FILE_PATH, mode="a", newline="", encoding="utf-8") as file:
+            writer = csv.writer(file)
+            for row in report_rows:
+                writer.writerow(row)
+
+        print("\n" + "="*40)
+        print("MIGRATION STATUS REPORT GENERATED")
+        print(f"Total Targets: {total_count}")
+        print(f"Files Migrated (Changed): {migrated_count}")
+        print(f"Files Skipped (No Changes): {skipped_count}")
+        print(f"Files Pending (Not Processed): {pending_count}")
+        print(f"Migration Coverage (Processed): {coverage_percent:.2f}%")
+        print(f"Details appended to: {os.path.relpath(LOG_FILE_PATH, self.project_root)}")
+        print("="*40)
 
     def _generate_diff(self, file_path: str, old_content: str, new_content: str) -> str:
         """Generates a unified diff between old and new content."""
@@ -165,15 +238,19 @@ class JavaMigrationAgent:
         return identifier.replace("\\", "/")
 
     def _get_all_java_source_files(self):
-        """Recursively finds all .java files in src/main/java."""
+        """Recursively finds all .java files in src/main/java and src/test/java."""
         java_files = []
-        source_dir = os.path.join(self.project_root, "src/main/java")
-        if not os.path.exists(source_dir):
-            return []
-        for root, _, files in os.walk(source_dir):
-            for file_name in files:
-                if file_name.endswith(".java"):
-                    java_files.append(os.path.join(root, file_name))
+        source_dirs = [
+            os.path.join(self.project_root, "src/main/java"),
+            os.path.join(self.project_root, "src/test/java")
+        ]
+        for source_dir in source_dirs:
+            if not os.path.exists(source_dir):
+                continue
+            for root, _, files in os.walk(source_dir):
+                for file_name in files:
+                    if file_name.endswith(".java"):
+                        java_files.append(os.path.join(root, file_name))
         return java_files
 
     def _guess_related_java_files(self, java_file_path: str) -> List[str]:
@@ -381,22 +458,35 @@ class JavaMigrationAgent:
 
         pom_path = os.path.join(self.project_root, "pom.xml")
         if os.path.exists(pom_path):
-            print("Modernizing build configuration (pom.xml)...")
-            with open(pom_path, "r", encoding="utf-8") as file_handle:
-                content = file_handle.read()
-            prompt = (
-                f"{self.migration_rules}\n\nFILE: pom.xml\n{content}\n\n"
-                "Task: Update to Java 11. Return JSON: [{'file': 'pom.xml', 'content': '...'}]"
-            )
-            self._apply_code_updates(
-                self._extract_json_from_ai_response(call_ai_cafe(prompt)),
-                change_type="Proactive Modernization",
-                triggered_by="pom.xml",
-                reason="Update to Java 11",
-                details="Updating build properties and compiler settings"
-            )
+            if pom_path not in self.file_statuses:
+                print("Modernizing build configuration (pom.xml)...")
+                with open(pom_path, "r", encoding="utf-8") as file_handle:
+                    content = file_handle.read()
+                prompt = (
+                    f"{self.migration_rules}\n\nFILE: pom.xml\n{content}\n\n"
+                    "Task: Update to Java 11. Return JSON: [{'file': 'pom.xml', 'content': '...'}]"
+                )
+                updates = self._extract_json_from_ai_response(call_ai_cafe(prompt))
+                changed_files = self._apply_code_updates(
+                    updates,
+                    change_type="Proactive Modernization",
+                    triggered_by="pom.xml",
+                    reason="Update to Java 11",
+                    details="Updating build properties and compiler settings"
+                )
+                if not changed_files:
+                    self._log_change_to_csv(pom_path, "Skipped", "Proactive Modernization", "pom.xml", "No changes required by AI", "AI returned no updates for pom.xml")
+            else:
+                print("pom.xml already processed, skipping proactive modernization.")
 
-        for file_path in self._get_all_java_source_files():
+
+        all_java_files = self._get_all_java_source_files()
+        for file_path in all_java_files:
+            if file_path in self.file_statuses:
+                rel_path = os.path.relpath(file_path, self.project_root)
+                print(f"Skipping {rel_path} (already processed in a previous run).")
+                continue
+
             rel_path = os.path.relpath(file_path, self.project_root)
             print(f"Modernizing {rel_path}...")
             with open(file_path, "r", encoding="utf-8") as file_handle:
@@ -406,13 +496,16 @@ class JavaMigrationAgent:
                 "Task: Migrate this file to Java 11 and apply security fixes for ALL occurrences. "
                 "Return JSON edits."
             )
-            self._apply_code_updates(
-                self._extract_json_from_ai_response(call_ai_cafe(prompt)),
+            updates = self._extract_json_from_ai_response(call_ai_cafe(prompt))
+            changed_files = self._apply_code_updates(
+                updates,
                 change_type="Proactive Modernization",
                 triggered_by=rel_path,
                 reason="Java 11 + Security Fixes",
                 details=f"Modernizing {rel_path}"
             )
+            if not changed_files:
+                self._log_change_to_csv(file_path, "Skipped", "Proactive Modernization", rel_path, "No changes required by AI", "AI returned no updates for this file.")
 
     def _project_appears_already_migrated(self) -> bool:
         pom_path = os.path.join(self.project_root, "pom.xml")
@@ -759,6 +852,9 @@ class JavaMigrationAgent:
             print(f"Applied changes to: {', '.join(changed_rel_paths)}")
         else:
             print(f"\nWarning: Migration did not complete within {MAX_FIX_ITERATIONS} iterations. Manual intervention may be required.")
+
+        # Finally, generate the report
+        self._generate_report()
 
 
 if __name__ == "__main__":
