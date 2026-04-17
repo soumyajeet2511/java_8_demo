@@ -13,8 +13,11 @@ from maven_parser import parse_maven_errors
 from openai_client import call_ai_cafe
 
 # --- Configuration ---
-PROJECT_ROOT = "/Users/kushagra/IdeaProjects/java_8_demo_10apr"
-MIGRATION_RULES_PATH = os.path.join(PROJECT_ROOT, ".gemini/v8tov11Migration.md")
+# Use the directory where the script is located as the project root to make it portable.
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
+
+MIGRATION_RULES_PATH = os.path.join(PROJECT_ROOT, ".gemini", "v8tov11Migration.md")
 MAX_FIX_ITERATIONS = 40
 MAX_ERRORS_PER_ITERATION = 5
 MAX_FILES_PER_FIX = 5
@@ -37,9 +40,14 @@ APPLICATION_FAILURE_KEYWORDS = (
 def find_maven_executable():
     """
     Locates the Maven wrapper (mvnw) if available, otherwise defaults to mvn.
+    Handles both Windows and Unix-like systems.
     """
-    wrapper_path = os.path.join(PROJECT_ROOT, "mvnw")
-    return wrapper_path if os.path.exists(wrapper_path) else "mvn"
+    if os.name == "nt":
+        wrapper_path = os.path.join(PROJECT_ROOT, "mvnw.cmd")
+        return wrapper_path if os.path.exists(wrapper_path) else "mvn"
+    else:
+        wrapper_path = os.path.join(PROJECT_ROOT, "mvnw")
+        return wrapper_path if os.path.exists(wrapper_path) else "mvn"
 
 
 MAVEN_COMMAND = find_maven_executable()
@@ -52,7 +60,7 @@ class JavaMigrationAgent:
     """
 
     def __init__(self, project_root):
-        self.project_root = project_root
+        self.project_root = os.path.abspath(project_root)
         self.current_iteration = 0
         self.migration_rules = self._load_migration_rules()
         self.error_fingerprints: Dict[str, int] = {}
@@ -76,11 +84,14 @@ class JavaMigrationAgent:
                 with open(LOG_FILE_PATH, mode="r", encoding="utf-8") as file:
                     reader = csv.DictReader(file)
                     for row in reader:
-                        if row.get("Timestamp") and "MIGRATION REPORT" not in row["Timestamp"]:
+                        timestamp = row.get("Timestamp", "")
+                        if timestamp and "--- MIGRATION REPORT" not in timestamp and "--- END OF REPORT" not in timestamp:
                             rel_path = row.get("Modified File")
                             action = row.get("Action")
                             if rel_path and action:
-                                full_path = os.path.join(self.project_root, rel_path)
+                                # Standardize rel_path to handle OS differences in the log
+                                standardized_rel_path = rel_path.replace("\\", "/")
+                                full_path = os.path.abspath(os.path.join(self.project_root, standardized_rel_path))
                                 self.file_statuses[full_path] = action
             except Exception as e:
                 print(f"Warning: Could not read existing log for state: {e}")
@@ -88,11 +99,11 @@ class JavaMigrationAgent:
     def _log_change_to_csv(self, file_path: str, action: str, change_type: str, triggered_by: str, reason: str, details: str, diff: str = ""):
         """Appends a new change record to the CSV log."""
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        rel_path = os.path.relpath(file_path, self.project_root)
+        rel_path = os.path.relpath(file_path, self.project_root).replace(os.sep, "/")
         with open(LOG_FILE_PATH, mode="a", newline="", encoding="utf-8") as file:
             writer = csv.writer(file)
             writer.writerow([timestamp, self.current_iteration, rel_path, action, change_type, triggered_by, reason, details, diff])
-        self.file_statuses[file_path] = action # Update the status for this file
+        self.file_statuses[os.path.abspath(file_path)] = action # Update the status for this file
 
     def _generate_report(self):
         """Generates a migration status report and appends it to the CSV."""
@@ -100,7 +111,7 @@ class JavaMigrationAgent:
         all_project_files = set(self._get_all_java_source_files())
         pom_path = os.path.join(self.project_root, "pom.xml")
         if os.path.exists(pom_path):
-            all_project_files.add(pom_path)
+            all_project_files.add(os.path.abspath(pom_path))
 
         migrated_files = {f for f, status in self.file_statuses.items() if status not in {"Skipped", "Restore"} and f in all_project_files}
         skipped_files = {f for f, status in self.file_statuses.items() if status == "Skipped" and f in all_project_files}
@@ -127,11 +138,15 @@ class JavaMigrationAgent:
         ]
 
         for f in sorted(migrated_files):
-            report_rows.append(["MIGRATED", os.path.relpath(f, self.project_root), self.file_statuses.get(f, "Changed by AI"), "", "", "", "", "", ""])
+            report_rows.append(["MIGRATED", os.path.relpath(f, self.project_root).replace(os.sep, "/"), self.file_statuses.get(f, "Changed by AI"), "", "", "", "", "", ""])
         for f in sorted(skipped_files):
-            report_rows.append(["SKIPPED", os.path.relpath(f, self.project_root), "No changes required by AI", "", "", "", "", "", ""])
+            report_rows.append(["SKIPPED", os.path.relpath(f, self.project_root).replace(os.sep, "/"), "No changes required by AI", "", "", "", "", "", ""])
         for f in sorted(pending_files):
-            report_rows.append(["PENDING", os.path.relpath(f, self.project_root), "Not yet processed by agent", "", "", "", "", "", ""])
+            # If the file is in file_statuses but marked as Restore, it's pending again
+            reason = "Not yet processed by agent"
+            if f in self.file_statuses and self.file_statuses[f] == "Restore":
+                reason = "Reverted during build-fix phase; requires re-migration"
+            report_rows.append(["PENDING", os.path.relpath(f, self.project_root).replace(os.sep, "/"), reason, "", "", "", "", "", ""])
 
         report_rows.append(["", "", "", "", "", "", "", "", ""])
         report_rows.append(["--- END OF REPORT ---", "", "", "", "", "", "", "", ""])
@@ -153,7 +168,7 @@ class JavaMigrationAgent:
 
     def _generate_diff(self, file_path: str, old_content: str, new_content: str) -> str:
         """Generates a unified diff between old and new content."""
-        rel_path = os.path.relpath(file_path, self.project_root)
+        rel_path = os.path.relpath(file_path, self.project_root).replace(os.sep, "/")
         diff_lines = difflib.unified_diff(
             old_content.splitlines(keepends=True),
             new_content.splitlines(keepends=True),
@@ -176,12 +191,14 @@ class JavaMigrationAgent:
         self.current_iteration += 1
         print(f"\n--- [Iteration {self.current_iteration}] Building Project ---")
         try:
+            # shell=True is often required on Windows to run batch files like mvnw.cmd
             result = subprocess.run(
                 [MAVEN_COMMAND, "clean", "test"],
                 cwd=self.project_root,
                 capture_output=True,
                 text=True,
                 check=False,
+                shell=(os.name == "nt")
             )
             return result.returncode == 0, result.stdout + result.stderr
         except Exception as exc:
@@ -198,20 +215,23 @@ class JavaMigrationAgent:
         if not identifier:
             return None
 
+        # Standardize identifier to use local OS separators
+        identifier = identifier.replace("/", os.sep).replace("\\", os.sep)
+
         if os.path.isabs(identifier) and os.path.exists(identifier):
-            return identifier
+            return os.path.abspath(identifier)
 
         normalized_identifier = identifier.lstrip(os.sep)
         full_path_candidate = os.path.join(self.project_root, normalized_identifier)
         if os.path.exists(full_path_candidate):
-            return full_path_candidate
+            return os.path.abspath(full_path_candidate)
 
         filename_only = os.path.basename(identifier)
         all_matches = []
         for root, dirnames, files in os.walk(self.project_root):
             dirnames[:] = [name for name in dirnames if name not in {"target", ".git", ".idea", ".agent_debug"}]
             if filename_only in files:
-                full_path = os.path.join(root, filename_only)
+                full_path = os.path.abspath(os.path.join(root, filename_only))
                 if os.sep in normalized_identifier and normalized_identifier.replace(".", os.sep) in full_path:
                     all_matches.append(full_path)
                 elif os.sep not in normalized_identifier:
@@ -221,7 +241,7 @@ class JavaMigrationAgent:
             return None
 
         # Prioritization: prefer src/main/java over src/test/java
-        production_matches = [m for m in all_matches if "src/main/java" in m]
+        production_matches = [m for m in all_matches if os.path.join("src", "main", "java") in m]
         if production_matches:
             return production_matches[0]
         return all_matches[0]
@@ -233,7 +253,7 @@ class JavaMigrationAgent:
 
         resolved = self._find_file_path(identifier)
         if resolved:
-            return os.path.relpath(resolved, self.project_root)
+            return os.path.relpath(resolved, self.project_root).replace(os.sep, "/")
 
         return identifier.replace("\\", "/")
 
@@ -241,8 +261,8 @@ class JavaMigrationAgent:
         """Recursively finds all .java files in src/main/java and src/test/java."""
         java_files = []
         source_dirs = [
-            os.path.join(self.project_root, "src/main/java"),
-            os.path.join(self.project_root, "src/test/java")
+            os.path.join(self.project_root, "src", "main", "java"),
+            os.path.join(self.project_root, "src", "test", "java")
         ]
         for source_dir in source_dirs:
             if not os.path.exists(source_dir):
@@ -250,7 +270,7 @@ class JavaMigrationAgent:
             for root, _, files in os.walk(source_dir):
                 for file_name in files:
                     if file_name.endswith(".java"):
-                        java_files.append(os.path.join(root, file_name))
+                        java_files.append(os.path.abspath(os.path.join(root, file_name)))
         return java_files
 
     def _guess_related_java_files(self, java_file_path: str) -> List[str]:
@@ -258,7 +278,7 @@ class JavaMigrationAgent:
         Guesses related Java files based on naming conventions with a prioritized order.
         """
         related_files = []
-        seen = {java_file_path}
+        seen = {os.path.abspath(java_file_path)}
 
         file_name_without_ext = os.path.basename(java_file_path).replace(".java", "")
         base_name = file_name_without_ext
@@ -395,7 +415,7 @@ class JavaMigrationAgent:
         with open(file_path, "w", encoding="utf-8") as file_handle:
             file_handle.write(snapshot)
 
-        rel_path = os.path.relpath(file_path, self.project_root)
+        rel_path = os.path.relpath(file_path, self.project_root).replace(os.sep, "/")
         print(f"Restored file from pre-reactive snapshot: {rel_path}")
         self._log_change_to_csv(file_path, "Restore", "Recovery", "Self", "Cyclic fix detected", "Restored to pre-reactive snapshot", diff)
         return True
@@ -444,7 +464,7 @@ class JavaMigrationAgent:
                 with open(full_file_path, "w", encoding="utf-8") as file_handle:
                     file_handle.write(modified_content)
 
-                rel_path = os.path.relpath(full_file_path, self.project_root)
+                rel_path = os.path.relpath(full_file_path, self.project_root).replace(os.sep, "/")
                 action = "Overwriting" if new_content is not None else "Patching"
                 print(f"{action} file: {rel_path}")
                 self._log_change_to_csv(full_file_path, action, change_type, triggered_by, reason, details, diff)
@@ -456,9 +476,10 @@ class JavaMigrationAgent:
         """Phase 1: Applies initial Java 11 modernizations and security fixes."""
         print("\nPhase 1: Proactive Modernization Scan")
 
-        pom_path = os.path.join(self.project_root, "pom.xml")
+        pom_path = os.path.abspath(os.path.join(self.project_root, "pom.xml"))
         if os.path.exists(pom_path):
-            if pom_path not in self.file_statuses:
+            # pom.xml should be re-processed if its last state was 'Restore'
+            if pom_path not in self.file_statuses or self.file_statuses[pom_path] == "Restore":
                 print("Modernizing build configuration (pom.xml)...")
                 with open(pom_path, "r", encoding="utf-8") as file_handle:
                     content = file_handle.read()
@@ -482,12 +503,17 @@ class JavaMigrationAgent:
 
         all_java_files = self._get_all_java_source_files()
         for file_path in all_java_files:
-            if file_path in self.file_statuses:
-                rel_path = os.path.relpath(file_path, self.project_root)
+            # A file should be processed if it's never been handled, was explicitly skipped, OR was reverted ('Restore')
+            if file_path in self.file_statuses and self.file_statuses[file_path] not in {"Restore"}:
+                rel_path = os.path.relpath(file_path, self.project_root).replace(os.sep, "/")
+                # We also skip if it was already explicitly 'Skipped' by Phase 1 before
+                if self.file_statuses[file_path] == "Skipped":
+                    continue
+                # If it was migrated, we definitely skip
                 print(f"Skipping {rel_path} (already processed in a previous run).")
                 continue
 
-            rel_path = os.path.relpath(file_path, self.project_root)
+            rel_path = os.path.relpath(file_path, self.project_root).replace(os.sep, "/")
             print(f"Modernizing {rel_path}...")
             with open(file_path, "r", encoding="utf-8") as file_handle:
                 content = file_handle.read()
@@ -614,7 +640,7 @@ class JavaMigrationAgent:
         for file_path in file_paths:
             with open(file_path, "r", encoding="utf-8") as file_handle:
                 content = file_handle.read()
-            rel_path = os.path.relpath(file_path, self.project_root)
+            rel_path = os.path.relpath(file_path, self.project_root).replace(os.sep, "/")
             context_chunks.append(f"FILE CONTENT ({rel_path}):\n```java\n{content}\n```")
         return "\n\n".join(context_chunks)
 
@@ -779,11 +805,27 @@ class JavaMigrationAgent:
         if SKIP_PROACTIVE_SCAN:
             print("\nPhase 1: Proactive Modernization Scan")
             print("Skipping proactive scan because SKIP_PROACTIVE_SCAN is enabled.")
-        elif self._project_appears_already_migrated() and not FORCE_PROACTIVE_SCAN:
-            print("\nPhase 1: Proactive Modernization Scan")
-            print("Skipping proactive scan because the project already appears to target Java 11. Set FORCE_PROACTIVE_SCAN=1 to override.")
         else:
-            self._perform_proactive_modernization()
+            # Robust check for pending files
+            all_files = set(self._get_all_java_source_files())
+            pom_path = os.path.abspath(os.path.join(self.project_root, "pom.xml"))
+            if os.path.exists(pom_path):
+                all_files.add(pom_path)
+
+            # A file is truly "processed" only if it was migrated (not reverted) or explicitly skipped.
+            # If its last status was 'Restore', it means the reactive fix failed and it's back to square one.
+            processed_files = {f for f, status in self.file_statuses.items() if status != "Restore"}
+            pending = all_files - processed_files
+
+            if self._project_appears_already_migrated() and not FORCE_PROACTIVE_SCAN:
+                if not pending:
+                    print("\nPhase 1: Proactive Modernization Scan")
+                    print("Skipping proactive scan because the project already appears to target Java 11 and all files are processed.")
+                else:
+                    print(f"\nPhase 1: Proactive Modernization Scan (Processing {len(pending)} pending files)")
+                    self._perform_proactive_modernization()
+            else:
+                self._perform_proactive_modernization()
 
         print("\nPhase 2: Reactive Build-Fix Loop")
         while self.current_iteration < MAX_FIX_ITERATIONS:
@@ -807,7 +849,7 @@ class JavaMigrationAgent:
             error_type = selected_errors[0]['type']
             error_msg = selected_errors[0]['message']
             triggered_by_path = self._display_file_reference(selected_errors[0].get("file"))
-            target_rel_paths = [os.path.relpath(path, self.project_root) for path in target_files]
+            target_rel_paths = [os.path.relpath(path, self.project_root).replace(os.sep, "/") for path in target_files]
 
             print(f"Error Detected: {error_type} in {triggered_by_path}")
             print("Fix batch:")
@@ -848,7 +890,7 @@ class JavaMigrationAgent:
                 print(f"Warning: No changes applied for current error batch affecting {triggered_by_path}.")
                 continue
 
-            changed_rel_paths = [os.path.relpath(path, self.project_root) for path in sorted(changed_files)]
+            changed_rel_paths = [os.path.relpath(path, self.project_root).replace(os.sep, "/") for path in sorted(changed_files)]
             print(f"Applied changes to: {', '.join(changed_rel_paths)}")
         else:
             print(f"\nWarning: Migration did not complete within {MAX_FIX_ITERATIONS} iterations. Manual intervention may be required.")
