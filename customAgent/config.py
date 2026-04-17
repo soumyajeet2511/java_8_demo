@@ -1,5 +1,5 @@
 # API Key for HCL AI Cafe Service (GPT-4)
-API_KEY = "67ff5c92-b34f-4fcf-bba4-02e8c4ecade5"
+API_KEY = "6660aa4d-60a5-43d2-b79c-8f2653a3941f"
 
 # Root path of the Java project to be migrated
 PROJECT_PATH = "../"
