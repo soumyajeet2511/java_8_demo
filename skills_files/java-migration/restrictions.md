@@ -2,12 +2,11 @@
 
 - Migration is NOT refactoring
 - Migration is NOT optimization
-- Migration is NOT modernization
 
-Only apply changes required for Java 11 compatibility.
+Only apply changes required for Java 21 compatibility.
 
 Forbidden:
-- Adding logic
+- Adding unnecessary logic
 - Changing behavior
 - Improving design
 - Cleaning code

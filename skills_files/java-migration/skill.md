@@ -1,5 +1,5 @@
 name: java-migration
-description: Fix Java 11 compatibility issues without modifying logic, APIs, or queries.
+description: Execute migration from Java 8 to 21 using readiness plan.
 dependencies:
   - global-restrictions
 
@@ -8,38 +8,55 @@ dependencies:
 # Java Migration Skill
 
 ## Purpose
-Migrate Java 8 code to Java 11 compatibility.
+Execute migration using readiness checklist.
+
+---
+
+## Target
+Java 21
+
+---
+
+## Input Requirement
+
+- Read readiness from chat
+- Treat checklist as mandatory
+
+---
+
+## Execution Rules
+
+- Process ALL checklist items
+- Do NOT stop after build success
+- Do NOT skip files
+
+---
+
+## Strategy
+
+Internally follow phases:
+- 8 → 11
+- 11 → 17
+- 17 → 21
+
+---
 
 ## Allowed
+
 - Fix removed APIs
 - Fix imports
-- Replace incompatible Java 8 usages
-- Apply minimal syntax fixes required for Java 11
+- Minimal compatibility fixes
 
-## Strict Prohibitions
+---
 
-### Business Logic
+## Forbidden
+
 - Do NOT change logic
-- Do NOT add validation
-- Do NOT add new conditions
+- Do NOT modify queries
+- Do NOT change API contracts
 
-### API Contracts
-- Do NOT change method signatures
-- Do NOT change return types (Collection → List ❌)
-- Do NOT change parameters
-- Do NOT add default methods
+---
 
-### Data Layer
-- Do NOT modify queries (SQL/JPQL/HQL)
-- Do NOT modify @Query
+## NEXT ACTION
 
-### Refactoring
-- Do NOT refactor code
-- Do NOT introduce var
-- Do NOT rewrite loops to streams
-
-## Rule
-If code works → DO NOT CHANGE
-
-## Output
-Patch JSON only
+→ Trigger build-run

@@ -1,16 +1,15 @@
 name: build-run
-description: Execute Maven build and return success or error logs without modifying code.
+description: Execute Maven build and return output only.
 dependencies:
   - global-restrictions
 
 ---
-# Build Run Skill
 
-## Purpose
-Compile project and return result.
+# Build Run Skill
 
 ## Command
 mvn clean compile
+---
 
 ## Output
 
@@ -18,8 +17,21 @@ mvn clean compile
 BUILD SUCCESS
 
 ### Failure
-Return full error logs
+Return raw error logs only
 
-## Rules
-- Do NOT modify code
-- Only execute build
+---
+
+## STRICT RULES
+
+- Do NOT analyze
+- Do NOT fix
+- Do NOT suggest
+
+---
+
+## NEXT ACTION
+
+If success → STOP
+
+If failure →
+→ Pass logs to routing-rules

@@ -1,5 +1,5 @@
 name: dependency-fix
-description: Resolve build failures caused by missing or incompatible dependencies in pom.xml.
+description: Fix dependency issues for Java 21 compatibility.
 dependencies:
   - global-restrictions
 
@@ -7,21 +7,25 @@ dependencies:
 
 # Dependency Fix Skill
 
-## Purpose
-Fix build failures related to dependencies.
+## Target
+Java 21
+
+---
 
 ## Allowed
+
 - Add missing dependencies
-- Upgrade incompatible dependencies
-- Add JAXB if required
+- Upgrade versions if required
+
+---
 
 ## Forbidden
+
 - Do NOT modify Java code
-- Do NOT remove dependencies blindly
-- Do NOT change business logic
+- Do NOT introduce major upgrades unnecessarily
 
-## Rule
-Fix only dependency-related errors
+---
 
-## Output
-Patch for pom.xml only
+## NEXT ACTION
+
+→ Trigger build-run

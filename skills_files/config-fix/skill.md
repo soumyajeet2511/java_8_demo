@@ -1,5 +1,5 @@
 name: config-fix
-description: Fix build configuration issues such as Java version or plugin settings.
+description: Fix build configuration for Java 21.
 dependencies:
   - global-restrictions
 
@@ -7,17 +7,24 @@ dependencies:
 
 # Config Fix Skill
 
-## Purpose
-Fix configuration issues (pom.xml, properties, YAML).
+## Target
+Java 21
 
-## Allowed
-- Fix Java version config
-- Fix plugin versions
-- Fix build configs
+---
+
+## Required
+
+- Set Java version to 21
+- Update compiler plugin
+
+---
 
 ## Forbidden
-- Do NOT modify Java classes
-- Do NOT change logic
 
-## Output
-Config patch only
+- Do NOT modify Java code
+
+---
+
+## NEXT ACTION
+
+→ Trigger build-run

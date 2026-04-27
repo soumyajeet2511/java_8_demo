@@ -1,25 +1,58 @@
 name: context-window
-description: Select minimal and relevant code context for processing.
+description: Analyze project and generate Java 8 to Java 21 readiness plan.
 dependencies:
   - global-restrictions
+  - java-migration
 
 ---
-# Context Window Skill
+
+# Context Analysis Skill
 
 ## Purpose
-Prepare safe and minimal context for the agent.
+Analyze full codebase and generate readiness plan.
 
-## Rules
-- Include only relevant files
-- Limit context size
-- Prefer:
-  - failing files
-  - related classes
-  - pom.xml (if needed)
+---
 
-## Forbidden
-- Do NOT include entire project blindly
-- Do NOT include unrelated files
+## Target
+Java 21
 
-## Output
-Provide only necessary code context for next step
+---
+
+## Output (MANDATORY)
+
+Generate readiness plan in markdown format:
+
+# Java 8 to Java 21 Migration Readiness Plan
+
+---
+
+## Required Sections
+
+### Migration Checklist (MANDATORY)
+
+- [ ] Update pom.xml to Java 21
+- [ ] Verify dependencies compatibility
+- [ ] Fix removed APIs
+- [ ] Validate configuration
+- [ ] Run build
+
+---
+
+### Strategy
+
+- Follow phased compatibility:
+  8 → 11 → 17 → 21
+- Final target must remain Java 21
+
+---
+
+### Risks
+List possible risks
+
+---
+
+## NEXT ACTION
+
+STOP after readiness generation
+
+Wait for user confirmation
