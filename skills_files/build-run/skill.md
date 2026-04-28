@@ -29,9 +29,12 @@ Return raw error logs only
 
 ---
 
-## NEXT ACTION
+## NEXT ACTION (MANDATORY)
 
-If success → STOP
+If build fails:
 
-If failure →
-→ Pass logs to routing-rules
+- Do NOT stop
+- Do NOT suggest manually
+
+→ Automatically pass error logs to routing system
+→ Continue execution
