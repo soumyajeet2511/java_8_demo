@@ -8,6 +8,9 @@ description: Map build errors to correct skill.
 ## Dependency Errors
 - "package ... does not exist"
 - "class not found"
+- "cannot resolve symbol"
+- "method not found"
+- "cannot find symbol"
 
 → dependency-fix
 
@@ -16,6 +19,9 @@ description: Map build errors to correct skill.
 ## Compilation Errors
 - "cannot find symbol"
 - syntax issues
+- missing symbols
+- type mismatch
+- compilation failure
 
 → java-migration
 

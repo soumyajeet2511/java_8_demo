@@ -1,11 +1,12 @@
-name: java-migration
-description: Execute migration from Java 8 to 21 using readiness plan.
-dependencies:
-  - global-restrictions
-
----
 
 # Java Migration Skill
+
+## description
+Execute migration from Java 8 to 21 using readiness plan.
+
+## dependencies
+- global-restrictions
+- modernization
 
 ## Purpose
 Execute migration using readiness checklist.

@@ -1,12 +1,25 @@
-name: implementation-plan
-description: Analyze project and generate Java 8 to Java 21 readiness plan.
-dependencies:
-  - global-restrictions
-  - java-migration
+
+# Implementation Plan Skill
+
+## description
+Analyze project and generate Java 8 to Java 21 readiness plan.
+
+## dependencies
+- global-restrictions
 
 ---
 
-# Context Analysis Skill
+## Skill References (MANDATORY)
+
+This skill MUST read and align with:
+- java-migration skill directory
+
+---
+
+## Rule
+
+- Read java-migration rules before generating readiness
+- Ensure readiness checklist matches what java-migration will execute
 
 ## Purpose
 Analyze full codebase and generate readiness plan.
