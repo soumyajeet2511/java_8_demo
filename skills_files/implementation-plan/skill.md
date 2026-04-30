@@ -1,4 +1,4 @@
-name: context-window
+name: implementation-plan
 description: Analyze project and generate Java 8 to Java 21 readiness plan.
 dependencies:
   - global-restrictions
@@ -20,7 +20,7 @@ Java 21
 
 ## Output (MANDATORY)
 
-Generate readiness plan in markdown format:
+Always generate readiness plan in markdown format, so that it can be generated as an artifact :
 
 # Java 8 to Java 21 Migration Readiness Plan
 
