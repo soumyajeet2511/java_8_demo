@@ -46,6 +46,7 @@ Always generate readiness plan in markdown format, so that it can be generated a
 - [ ] Update pom.xml to Java 21
 - [ ] Verify dependencies compatibility
 - [ ] Fix removed APIs
+- [ ] Apply Java Modernization (isBlank, List.of, etc.)
 - [ ] Validate configuration
 - [ ] Run build
 

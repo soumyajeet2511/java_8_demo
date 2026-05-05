@@ -36,5 +36,5 @@ If build fails:
 - Do NOT stop
 - Do NOT suggest manually
 
-→ Automatically pass error logs to routing system
-→ Continue execution
+→ Automatically pass error logs to routing-rules
+→ Continue execution as per error fix
