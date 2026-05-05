@@ -8,7 +8,7 @@ dependencies:
 # Build Run Skill
 
 ## Command
-mvn clean compile
+mvn clean install
 ---
 
 ## Output
