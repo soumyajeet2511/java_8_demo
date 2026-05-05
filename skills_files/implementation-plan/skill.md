@@ -6,6 +6,7 @@ Analyze project and generate Java 8 to Java 21 readiness plan.
 
 ## dependencies
 - global-restrictions
+- java-migration
 
 ---
 
@@ -46,7 +47,7 @@ Always generate readiness plan in markdown format, so that it can be generated a
 - [ ] Update pom.xml to Java 21
 - [ ] Verify dependencies compatibility
 - [ ] Fix removed APIs
-- [ ] Apply Java Modernization (isBlank, List.of, etc.)
+- [ ] Apply Java Modernization from java-migration/modernization(isBlank, List.of, etc.)
 - [ ] Validate configuration
 - [ ] Run build
 
